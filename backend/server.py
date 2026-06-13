@@ -295,10 +295,25 @@ async def get_lists(type: Optional[str] = None, user: dict = Depends(current_use
     if type:
         q["type"] = type
     lists = await db.lists.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-    # Add item counts
+    if not lists:
+        return lists
+    # Batch counts via single aggregation to avoid N+1.
+    list_ids = [lst["id"] for lst in lists]
+    counts_cursor = db.list_items.aggregate([
+        {"$match": {"list_id": {"$in": list_ids}}},
+        {"$group": {
+            "_id": "$list_id",
+            "total": {"$sum": 1},
+            "done": {"$sum": {"$cond": [{"$eq": ["$done", True]}, 1, 0]}},
+        }},
+    ])
+    counts: dict = {}
+    async for row in counts_cursor:
+        counts[row["_id"]] = (row["total"], row["done"])
     for lst in lists:
-        lst["item_count"] = await db.list_items.count_documents({"list_id": lst["id"]})
-        lst["done_count"] = await db.list_items.count_documents({"list_id": lst["id"], "done": True})
+        total, done = counts.get(lst["id"], (0, 0))
+        lst["item_count"] = total
+        lst["done_count"] = done
     return lists
 
 
