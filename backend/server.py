@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt as pyjwt
+import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
@@ -27,6 +28,30 @@ JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGO = "HS256"
 JWT_EXP_DAYS = 30
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# ---- Emergent Push relay (SuprSend) -----------------------------------------
+PUSH_BASE_URL = "https://integrations.emergentagent.com"
+EMERGENT_PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
+_push_client = httpx.AsyncClient(
+    base_url=PUSH_BASE_URL,
+    headers={"X-Push-Key": EMERGENT_PUSH_KEY},
+    timeout=10.0,
+)
+
+
+async def send_push(recipients: List[str], data: dict, idempotency_key: Optional[str] = None) -> None:
+    """Fire-and-log push. Never raises into the caller."""
+    if not recipients or not data.get("title") or not data.get("message"):
+        return
+    payload: dict = {"recipients": recipients, "data": data}
+    if idempotency_key:
+        payload["$idempotency_key"] = idempotency_key
+    try:
+        resp = await _push_client.post("/api/v1/push/trigger", json=payload)
+        if resp.status_code >= 400:
+            logger.warning(f"Push relay returned {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        logger.warning(f"Push notification failed (non-blocking): {e}")
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -81,6 +106,11 @@ def gen_code(n=6) -> str:
 
 
 # ======================= MODELS =======================
+class Recurrence(BaseModel):
+    type: str = "none"  # none | daily | weekly | monthly | yearly | weekdays
+    weekdays: Optional[List[int]] = None  # 0=Sun..6=Sat
+
+
 class SignupReq(BaseModel):
     email: EmailStr
     username: str
@@ -112,6 +142,7 @@ class ItemCreate(BaseModel):
     assignee_id: Optional[str] = None
     due_at: Optional[str] = None  # ISO datetime string
     remind_minutes_before: Optional[int] = None
+    recurrence: Optional[Recurrence] = None
 
 
 class ItemUpdate(BaseModel):
@@ -122,6 +153,7 @@ class ItemUpdate(BaseModel):
     due_at: Optional[str] = None
     remind_minutes_before: Optional[int] = None
     clear_due: Optional[bool] = None
+    recurrence: Optional[Recurrence] = None
 
 
 class ShareReq(BaseModel):
@@ -167,6 +199,7 @@ class EventCreate(BaseModel):
     location: Optional[str] = None
     remind_minutes_before: Optional[int] = None
     share_with_partner: bool = False
+    recurrence: Optional["Recurrence"] = None
 
 
 class EventUpdate(BaseModel):
@@ -177,6 +210,17 @@ class EventUpdate(BaseModel):
     location: Optional[str] = None
     remind_minutes_before: Optional[int] = None
     share_with_partner: Optional[bool] = None
+
+
+class Recurrence(BaseModel):  # noqa: F811
+    type: str = "none"
+    weekdays: Optional[List[int]] = None
+
+
+class RegisterPushReq(BaseModel):
+    user_id: str
+    platform: str
+    device_token: str
 
 
 # ======================= AUTH =======================
@@ -356,6 +400,16 @@ async def create_list(req: ListCreate, user: dict = Depends(current_user)):
     lst.pop("_id", None)
     lst["item_count"] = 0
     lst["done_count"] = 0
+    if lst["shared_with"] and user.get("partner_id"):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={
+                "title": f"{user['username']} started a new list",
+                "message": lst["name"],
+                "action_url": f"/list/{lst['id']}",
+            },
+            idempotency_key=f"list-create-{lst['id']}",
+        )
     return lst
 
 
@@ -415,11 +469,23 @@ async def add_item(list_id: str, req: ItemCreate, user: dict = Depends(current_u
         "done": False,
         "due_at": req.due_at,
         "remind_minutes_before": req.remind_minutes_before,
+        "recurrence": req.recurrence.dict() if req.recurrence else None,
         "created_by": user["id"],
         "created_at": iso(now_utc()),
     }
     await db.list_items.insert_one(item)
     item.pop("_id", None)
+    # Notify partner if this list is shared
+    if lst.get("shared_with") and user.get("partner_id"):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={
+                "title": f"{user['username']} added an item",
+                "message": f"{lst['name']}: {item['text']}",
+                "action_url": f"/list/{list_id}",
+            },
+            idempotency_key=f"item-create-{item['id']}",
+        )
     return item
 
 
@@ -454,6 +520,21 @@ async def update_item(item_id: str, req: ItemUpdate, user: dict = Depends(curren
     if ops:
         await db.list_items.update_one({"id": item_id}, ops)
     updated = await db.list_items.find_one({"id": item_id}, {"_id": 0})
+    # Notify partner when a shared item is marked done
+    if (
+        updated and updated.get("done")
+        and lst.get("shared_with") and user.get("partner_id")
+        and update.get("done") is True
+    ):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={
+                "title": f"{user['username']} checked off a task",
+                "message": f"{lst['name']}: {updated['text']}",
+                "action_url": f"/list/{item['list_id']}",
+            },
+            idempotency_key=f"item-done-{item_id}-{iso(now_utc())[:13]}",
+        )
     return updated
 
 
@@ -596,6 +677,26 @@ async def check_step(req: RoutineCheckReq, user: dict = Depends(current_user)):
     return {"checked": True}
 
 
+@api_router.post("/register-push", status_code=201)
+async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)):
+    try:
+        resp = await _push_client.post(
+            "/api/v1/push/users/register",
+            json=req.dict(),
+        )
+        if resp.status_code == 401:
+            raise HTTPException(500, "EMERGENT_PUSH_KEY missing or invalid")
+        if resp.status_code >= 500:
+            raise HTTPException(502, "Push provider unavailable")
+        resp.raise_for_status()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"register_push relay failed: {e}")
+        # don't crash the client — token will be retried next app open
+    return {"status": "registered"}
+
+
 # ======================= EVENTS / CALENDAR =======================
 @api_router.get("/events")
 async def get_events(user: dict = Depends(current_user)):
@@ -619,11 +720,23 @@ async def create_event(req: EventCreate, user: dict = Depends(current_user)):
         "notes": (req.notes or "").strip()[:1000] or None,
         "location": (req.location or "").strip()[:200] or None,
         "remind_minutes_before": req.remind_minutes_before,
+        "recurrence": req.recurrence.dict() if req.recurrence else None,
         "shared": bool(req.share_with_partner and user.get("partner_id")),
         "created_at": iso(now_utc()),
     }
     await db.events.insert_one(event)
     event.pop("_id", None)
+    if event["shared"] and user.get("partner_id"):
+        when_label = event["date"] + (f" · {event['time']}" if event.get("time") else "")
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={
+                "title": f"{user['username']} added an event",
+                "message": f"{event['title']} — {when_label}",
+                "action_url": "/(tabs)/calendar",
+            },
+            idempotency_key=f"event-create-{event['id']}",
+        )
     return event
 
 
