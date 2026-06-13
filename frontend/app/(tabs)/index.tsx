@@ -22,23 +22,33 @@ const HERO = "https://images.unsplash.com/photo-1708465034183-7e3528d41944?crop=
 
 type Quote = { text: string; author: string };
 type Routine = { steps: { id: string; text: string; order: number }[]; completed_today: string[] };
+type EventItem = { id: string; title: string; date: string; time?: string | null; location?: string | null; owner_id: string; owner_username: string; shared: boolean };
 
 export default function Today() {
   const { user } = useAuth();
   const router = useRouter();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [routine, setRoutine] = useState<Routine | null>(null);
+  const [upcoming, setUpcoming] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [q, r] = await Promise.all([
+      const [q, r, e] = await Promise.all([
         api.get("/quote/today"),
         api.get("/routine"),
+        api.get("/events"),
       ]);
       setQuote(q.data);
       setRoutine(r.data);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const horizon = new Date(today); horizon.setDate(today.getDate() + 14);
+      const futureEvents = (e.data || []).filter((ev: EventItem) => {
+        const d = new Date(ev.date + "T00:00:00");
+        return d >= today && d <= horizon;
+      }).slice(0, 5);
+      setUpcoming(futureEvents);
     } catch {
       // ignore
     } finally {
@@ -159,6 +169,53 @@ export default function Today() {
           )}
         </View>
 
+        {/* Upcoming events */}
+        {upcoming.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Coming up</Text>
+              <Pressable
+                testID="open-calendar-btn"
+                onPress={() => router.push("/(tabs)/calendar")}
+                hitSlop={10}
+              >
+                <Feather name="arrow-right" size={18} color={colors.brand} />
+              </Pressable>
+            </View>
+            <View style={styles.upcomingList}>
+              {upcoming.map((ev) => {
+                const d = new Date(ev.date + "T00:00:00");
+                const today = new Date(); today.setHours(0, 0, 0, 0);
+                const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+                const when = diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                return (
+                  <Pressable
+                    key={ev.id}
+                    testID={`upcoming-${ev.id}`}
+                    onPress={() => router.push("/(tabs)/calendar")}
+                    style={styles.upcomingCard}
+                  >
+                    <View style={styles.upcomingDateCol}>
+                      <Text style={styles.upcomingWhen}>{when}</Text>
+                      {ev.time && <Text style={styles.upcomingTime}>{ev.time}</Text>}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.upcomingTitle} numberOfLines={1}>{ev.title}</Text>
+                      {(ev.location || ev.owner_id !== user?.id) && (
+                        <Text style={styles.upcomingMeta} numberOfLines={1}>
+                          {ev.location}
+                          {ev.location && ev.owner_id !== user?.id && " · "}
+                          {ev.owner_id !== user?.id && `by ${ev.owner_username}`}
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
     </View>
@@ -238,4 +295,21 @@ const styles = StyleSheet.create({
   },
   routineText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
   routineTextDone: { color: colors.onSurfaceTertiary, textDecorationLine: "line-through" },
+  upcomingList: { gap: spacing.sm },
+  upcomingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  upcomingDateCol: { width: 90 },
+  upcomingWhen: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.3, textTransform: "uppercase" },
+  upcomingTime: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  upcomingTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  upcomingMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
 });

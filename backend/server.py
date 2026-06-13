@@ -110,6 +110,8 @@ class ItemCreate(BaseModel):
     text: str
     qty: Optional[str] = None
     assignee_id: Optional[str] = None
+    due_at: Optional[str] = None  # ISO datetime string
+    remind_minutes_before: Optional[int] = None
 
 
 class ItemUpdate(BaseModel):
@@ -117,6 +119,9 @@ class ItemUpdate(BaseModel):
     qty: Optional[str] = None
     done: Optional[bool] = None
     assignee_id: Optional[str] = None
+    due_at: Optional[str] = None
+    remind_minutes_before: Optional[int] = None
+    clear_due: Optional[bool] = None
 
 
 class ShareReq(BaseModel):
@@ -152,6 +157,26 @@ class RoutineUpdate(BaseModel):
 class RoutineCheckReq(BaseModel):
     step_id: str
     date: str  # YYYY-MM-DD
+
+
+class EventCreate(BaseModel):
+    title: str
+    date: str  # YYYY-MM-DD
+    time: Optional[str] = None  # HH:MM
+    notes: Optional[str] = None
+    location: Optional[str] = None
+    remind_minutes_before: Optional[int] = None
+    share_with_partner: bool = False
+
+
+class EventUpdate(BaseModel):
+    title: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    notes: Optional[str] = None
+    location: Optional[str] = None
+    remind_minutes_before: Optional[int] = None
+    share_with_partner: Optional[bool] = None
 
 
 # ======================= AUTH =======================
@@ -388,6 +413,8 @@ async def add_item(list_id: str, req: ItemCreate, user: dict = Depends(current_u
         "qty": req.qty,
         "assignee_id": req.assignee_id,
         "done": False,
+        "due_at": req.due_at,
+        "remind_minutes_before": req.remind_minutes_before,
         "created_by": user["id"],
         "created_at": iso(now_utc()),
     }
@@ -408,9 +435,24 @@ async def update_item(item_id: str, req: ItemUpdate, user: dict = Depends(curren
     )
     if not lst:
         raise HTTPException(403, "Not allowed")
-    update = {k: v for k, v in req.dict(exclude_unset=True).items() if v is not None or k == "done"}
+    payload = req.dict(exclude_unset=True)
+    update: dict = {}
+    unset: dict = {}
+    for k, v in payload.items():
+        if k == "clear_due":
+            if v:
+                unset["due_at"] = ""
+                unset["remind_minutes_before"] = ""
+            continue
+        if v is not None or k == "done":
+            update[k] = v
+    ops: dict = {}
     if update:
-        await db.list_items.update_one({"id": item_id}, {"$set": update})
+        ops["$set"] = update
+    if unset:
+        ops["$unset"] = unset
+    if ops:
+        await db.list_items.update_one({"id": item_id}, ops)
     updated = await db.list_items.find_one({"id": item_id}, {"_id": 0})
     return updated
 
@@ -552,6 +594,59 @@ async def check_step(req: RoutineCheckReq, user: dict = Depends(current_user)):
         "created_at": iso(now_utc()),
     })
     return {"checked": True}
+
+
+# ======================= EVENTS / CALENDAR =======================
+@api_router.get("/events")
+async def get_events(user: dict = Depends(current_user)):
+    ids = await _accessible_user_ids(user)
+    events = await db.events.find(
+        {"$or": [{"owner_id": user["id"]}, {"owner_id": {"$in": ids}, "shared": True}]},
+        {"_id": 0},
+    ).sort("date", 1).to_list(1000)
+    return events
+
+
+@api_router.post("/events")
+async def create_event(req: EventCreate, user: dict = Depends(current_user)):
+    event = {
+        "id": str(uuid.uuid4()),
+        "owner_id": user["id"],
+        "owner_username": user["username"],
+        "title": req.title.strip()[:120] or "Untitled",
+        "date": req.date,
+        "time": req.time,
+        "notes": (req.notes or "").strip()[:1000] or None,
+        "location": (req.location or "").strip()[:200] or None,
+        "remind_minutes_before": req.remind_minutes_before,
+        "shared": bool(req.share_with_partner and user.get("partner_id")),
+        "created_at": iso(now_utc()),
+    }
+    await db.events.insert_one(event)
+    event.pop("_id", None)
+    return event
+
+
+@api_router.patch("/events/{eid}")
+async def update_event(eid: str, req: EventUpdate, user: dict = Depends(current_user)):
+    existing = await db.events.find_one({"id": eid, "owner_id": user["id"]}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Event not found")
+    payload = req.dict(exclude_unset=True)
+    if "share_with_partner" in payload:
+        payload["shared"] = bool(payload.pop("share_with_partner") and user.get("partner_id"))
+    if payload:
+        await db.events.update_one({"id": eid}, {"$set": payload})
+    updated = await db.events.find_one({"id": eid}, {"_id": 0})
+    return updated
+
+
+@api_router.delete("/events/{eid}")
+async def delete_event(eid: str, user: dict = Depends(current_user)):
+    res = await db.events.delete_one({"id": eid, "owner_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
 
 
 # ======================= DAILY QUOTE (AI) =======================
