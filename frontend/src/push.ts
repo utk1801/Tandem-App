@@ -16,7 +16,6 @@ export async function registerForPush(userId: string): Promise<boolean> {
     const device_token = (tokenResp as any).data || (tokenResp as any).token;
     if (!device_token) return false;
     await api.post("/register-push", {
-      user_id: userId,
       platform: Platform.OS,
       device_token,
     });

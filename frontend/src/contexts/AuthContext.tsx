@@ -1,18 +1,16 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
-import { api, setAuthToken } from "../api";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { supabase } from "@/src/supabase";
+import { api } from "@/src/api";
 
 type User = {
   id: string;
-  email: string;
+  email?: string | null;
   username: string;
   partner_id?: string | null;
 };
 
 type AuthCtx = {
   user: User | null;
-  token: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, username: string, password: string) => Promise<void>;
@@ -21,83 +19,68 @@ type AuthCtx = {
 };
 
 const AuthContext = createContext<AuthCtx | null>(null);
-const TOKEN_KEY = "tandem_token";
 
-async function saveToken(t: string | null) {
-  if (Platform.OS === "web") {
-    if (t) localStorage.setItem(TOKEN_KEY, t);
-    else localStorage.removeItem(TOKEN_KEY);
-  } else {
-    if (t) await SecureStore.setItemAsync(TOKEN_KEY, t);
-    else await SecureStore.deleteItemAsync(TOKEN_KEY);
+async function fetchProfile(): Promise<User | null> {
+  try {
+    const res = await api.get("/auth/me");
+    return res.data as User;
+  } catch {
+    return null;
   }
-}
-
-async function readToken(): Promise<string | null> {
-  if (Platform.OS === "web") {
-    return localStorage.getItem(TOKEN_KEY);
-  }
-  return await SecureStore.getItemAsync(TOKEN_KEY);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refreshUser = useCallback(async () => {
-    try {
-      const res = await api.get("/auth/me");
-      setUser(res.data);
-    } catch {
-      // ignore
-    }
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted) {
+        if (session) setUser(await fetchProfile());
+        setLoading(false);
+      }
+    })();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+      if (session) setUser(await fetchProfile());
+      else setUser(null);
+    });
+    return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      const t = await readToken();
-      if (t) {
-        setAuthToken(t);
-        setToken(t);
-        try {
-          const res = await api.get("/auth/me");
-          setUser(res.data);
-        } catch {
-          await saveToken(null);
-          setAuthToken(null);
-          setToken(null);
-        }
-      }
-      setLoading(false);
-    })();
-  }, []);
+  const refreshUser = async () => { setUser(await fetchProfile()); };
 
   const signIn = async (email: string, password: string) => {
-    const res = await api.post("/auth/login", { email, password });
-    await saveToken(res.data.token);
-    setAuthToken(res.data.token);
-    setToken(res.data.token);
-    setUser(res.data.user);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error) throw new Error(error.message);
+    setUser(await fetchProfile());
   };
 
   const signUp = async (email: string, username: string, password: string) => {
-    const res = await api.post("/auth/signup", { email, username, password });
-    await saveToken(res.data.token);
-    setAuthToken(res.data.token);
-    setToken(res.data.token);
-    setUser(res.data.user);
+    const { error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: { data: { username: username.trim() } },
+    });
+    if (error) throw new Error(error.message);
+    // If email confirmations are disabled in Supabase, session is active now.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) setUser(await fetchProfile());
+    else throw new Error("Check your email to confirm your account, then sign in.");
   };
 
   const signOut = async () => {
-    await saveToken(null);
-    setAuthToken(null);
-    setToken(null);
+    await supabase.auth.signOut();
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, signIn, signUp, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
