@@ -1,0 +1,206 @@
+{
+  "app_name": "Tandem",
+  "personality": "3 Editorial Mobile",
+  "personality_one_liner": "A calm, elegant, and warm shared space that feels like a beautifully typeset modern magazine.",
+  "color": {
+    "light": {
+      "surface": "#FDFCF9",
+      "onSurface": "#1C1917",
+      "surfaceSecondary": "#F2EFE8",
+      "onSurfaceSecondary": "#44403C",
+      "surfaceTertiary": "#E6E1D6",
+      "onSurfaceTertiary": "#57534E",
+      "surfaceInverse": "#2C2825",
+      "onSurfaceInverse": "#FDFCF9",
+      "brand": "#A64D3C",
+      "brandPrimary": "#A64D3C",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#D97B68",
+      "onBrandSecondary": "#2C2825",
+      "brandTertiary": "#F2D8D3",
+      "onBrandTertiary": "#7A3528",
+      "success": "#4F7359",
+      "onSuccess": "#FFFFFF",
+      "warning": "#D9933D",
+      "onWarning": "#2C2825",
+      "error": "#B04A4A",
+      "onError": "#FFFFFF",
+      "info": "#60748C",
+      "onInfo": "#FFFFFF",
+      "border": "#E6E1D6",
+      "borderStrong": "#D6CEC1",
+      "divider": "#E6E1D6"
+    },
+    "dark": {
+      "surface": "#1A1817",
+      "onSurface": "#FDFCF9",
+      "surfaceSecondary": "#262321",
+      "onSurfaceSecondary": "#D6CEC1",
+      "surfaceTertiary": "#332F2C",
+      "onSurfaceTertiary": "#A8A29E",
+      "surfaceInverse": "#FDFCF9",
+      "onSurfaceInverse": "#1C1917",
+      "brand": "#C25E4B",
+      "brandPrimary": "#C25E4B",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#E08F7D",
+      "onBrandSecondary": "#1A1817",
+      "brandTertiary": "#4A2821",
+      "onBrandTertiary": "#F2D8D3",
+      "success": "#6B9677",
+      "onSuccess": "#1A1817",
+      "warning": "#EDB064",
+      "onWarning": "#1A1817",
+      "error": "#D66A6A",
+      "onError": "#1A1817",
+      "info": "#839BB5",
+      "onInfo": "#1A1817",
+      "border": "#332F2C",
+      "borderStrong": "#4A4541",
+      "divider": "#332F2C"
+    }
+  },
+  "typography": {
+    "displayFontFamily": "Fraunces",
+    "textFontFamily": "DM Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 32
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room. Use margin correctly. Do not cramp elements. Whitespace is a deliberate feature here.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 0,
+  "navigation": "bottom_tabs",
+  "icon_set": "Feather",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": ["Skip glass entirely as the Editorial Mobile personality dictates."],
+    "dont's": ["Do not use blur or glassmorphism. Rely on solid surfaces and borders."]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Auth",
+      "purpose": "Warm welcome to set the tone, with simple elegant email/password fields.",
+      "states": {
+        "loading": "Spinner centered on soft surfaceSecondary background.",
+        "empty": "N/A",
+        "error": "Standard alert toast using error tokens."
+      },
+      "layout": "Large Fraunces display title ('Tandem'). Simple DM Sans labels above inputs. Primary brand button sticky at the bottom."
+    },
+    {
+      "name": "Home (Today)",
+      "purpose": "Anchor the user's day with an AI quote hero card and their morning routine checklist.",
+      "states": {
+        "loading": "Soft pulsing skeleton cards.",
+        "empty": "N/A",
+        "error": "Error message with retry button."
+      },
+      "layout": "Top: Large Hero image card (hero_quote_bg) with a vertical gradient scrim and the AI daily quote in large white Fraunces text centered in the bottom 40%. Middle: 'Morning Routine' section with a list of checkable routine cards. Bottom: 'Shared Activity' summary card."
+    },
+    {
+      "name": "Lists Hub",
+      "purpose": "A beautifully organized dashboard of shared To-do lists, Groceries, and Chores.",
+      "states": {
+        "loading": "Skeleton blocks.",
+        "empty": "Empty state illustration (empty_lists) with 'No shared lists yet' and a prominent 'Create List' CTA.",
+        "error": "Error boundary message."
+      },
+      "layout": "Editorial layout: Prominent section titles. Use a 2-column grid for lists, each card wrapped in a 1px border with no shadow, showing the list title, item count, and overlapping small initials avatars for the assigned users."
+    },
+    {
+      "name": "List Detail",
+      "purpose": "Manage items in a specific list (To-dos, Groceries, or Chores).",
+      "states": {
+        "loading": "Skeleton rows.",
+        "empty": "Empty state with 'List is empty' text and illustration.",
+        "error": "Error toast on action fail."
+      },
+      "layout": "Large Display title. Floating Action Button (FAB) at the bottom right for adding items (or sticky input at bottom). List rows have a leading checkbox, title, and trailing assignee avatar or quantity tag."
+    },
+    {
+      "name": "Journal & Thoughts",
+      "purpose": "A hybrid space for capturing quick thoughts and longer reflective entries.",
+      "states": {
+        "loading": "Skeleton cards.",
+        "empty": "Empty desk illustration (empty_journal) with 'Capture your first thought'.",
+        "error": "Error loading entries."
+      },
+      "layout": "A segmented control to switch between 'Thoughts' and 'Journal'. 'Thoughts': A masonry or stacked list of minimal cards containing short text snippets. 'Journal': Large, generous cards with the entry date prominent in Fraunces, mood tag, and a snippet of the reflection."
+    },
+    {
+      "name": "Profile & Sharing",
+      "purpose": "Manage account settings and connect with a partner.",
+      "states": {
+        "loading": "Spinner.",
+        "empty": "Partner section shows 'Not connected' with a prominent invite CTA.",
+        "error": "Standard error handling."
+      },
+      "layout": "List-based settings view. The top section prominently displays the connected partner's initial avatar and status. Includes inputs for sharing via username/email or generating an invite link."
+    }
+  ],
+  "images": {
+    "hero_quote_bg": {
+      "url": "https://images.unsplash.com/photo-1708465034183-7e3528d41944?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHx3YXJtJTI0bW9ybmluZyUyMHN1bmxpZ2h0JTIwc29mdCUyMGFic3RyYWN0JTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODEzMjMyNzl8MA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1627037558426-c2d07beda3af?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwY2FsbSUyMGFic3RyYWN0JTIwZ2VvbWV0cmljJTIwc2hhcGVzJTIwcGFzdGVsfGVufDB8fHx8MTc4MTMyMzI3OXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Soft abstract warm sunlight texture"
+    },
+    "empty_journal": {
+      "url": "https://images.unsplash.com/photo-1531346878377-a5be20888e57?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYmxhbmslMjBub3RlYm9vayUyMGRlc2slMjBsaWZlc3R5bGV8ZW58MHx8fHwxNzgxMzIzMjc5fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1531346878377-a5be20888e57?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYmxhbmslMjBub3RlYm9vayUyMGRlc2slMjBsaWZlc3R5bGV8ZW58MHx8fHwxNzgxMzIzMjc5fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimalist blank notebook on a desk"
+    },
+    "connection_graphic": {
+      "url": "https://images.pexels.com/photos/13779942/pexels-photo-13779942.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/13779942/pexels-photo-13779942.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Two warm coffee cups together"
+    }
+  },
+  "instructions_to_main_agent": [
+    "NEVER exceed font weight 500. Use Fraunces size (e.g., 24pt/32pt) to create hierarchy instead of weight.",
+    "Apply Editorial Mobile spacing: use `xl` (24) or `2xl` (32) margins between major sections to let the UI breathe.",
+    "For the Daily Quote Hero Card on the Home screen, layer the `hero_quote_bg` image, then a top-to-bottom vertical linear gradient scrim (transparent to surfaceInverse at 80% opacity), then the white quote text in the bottom 40% of the card.",
+    "Do not use drop shadows or blur effects (glassmorphism is disabled for Editorial personality). Rely on `1px` borders and `surfaceSecondary` fills to separate cards from the background.",
+    "Use initials with `brandTertiary` backgrounds for user avatars when rendering shared tasks or connections.",
+    "Ensure the 'Start Morning Routine' UI is completely visible and easily checkable.",
+    "Ensure 'Thoughts' render as a minimal grid or masonry layout, resembling small, elegant torn-paper notes with clean borders."
+  ],
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "tab_change": "selection",
+    "task_check": "impactMedium",
+    "routine_step_complete": "notificationSuccess",
+    "thought_saved": "notificationSuccess"
+  }
+}
