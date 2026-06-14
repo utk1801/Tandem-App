@@ -5,16 +5,15 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Modal,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { api } from "@/src/api";
+import { SwipeableSheet } from "@/src/components/SwipeableSheet";
+import { DocumentScanButton } from "@/src/components/DocumentScanButton";
 
 type ListType = "todo" | "grocery" | "chores";
 type TandemList = {
@@ -77,13 +76,16 @@ export default function ListsHub() {
             <Text style={styles.heading}>Lists</Text>
             <Text style={styles.subhead}>Everything you're keeping together.</Text>
           </View>
-          <Pressable
-            testID="new-list-btn"
-            onPress={() => setCreating(true)}
-            style={styles.headerCta}
-          >
-            <Feather name="plus" size={20} color={colors.onBrandPrimary} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <DocumentScanButton onComplete={load} compact />
+            <Pressable
+              testID="new-list-btn"
+              onPress={() => setCreating(true)}
+              style={styles.headerCta}
+            >
+              <Feather name="plus" size={20} color={colors.onBrandPrimary} />
+            </Pressable>
+          </View>
         </View>
 
         <ScrollView
@@ -156,52 +158,39 @@ export default function ListsHub() {
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
 
-      <Modal visible={creating} transparent animationType="slide" onRequestClose={() => setCreating(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.modalRoot}
-        >
-          <Pressable style={styles.modalBackdrop} onPress={() => setCreating(false)} />
-          <View style={styles.sheet} testID="new-list-sheet">
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>New list</Text>
-            <TextInput
-              testID="new-list-name-input"
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="e.g. Weekend groceries"
-              placeholderTextColor={colors.onSurfaceTertiary}
-              style={styles.sheetInput}
-              autoFocus
-            />
-            <View style={styles.typeRow}>
-              {(["todo", "grocery", "chores"] as ListType[]).map((t) => {
-                const active = newType === t;
-                return (
-                  <Pressable
-                    key={t}
-                    testID={`type-${t}`}
-                    onPress={() => setNewType(t)}
-                    style={[styles.typePill, active && styles.typePillOn]}
-                  >
-                    <Feather name={TYPE_META[t].icon} size={14} color={active ? "#fff" : colors.onSurface} />
-                    <Text style={[styles.typePillText, active && { color: "#fff" }]}>
-                      {TYPE_META[t].label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Pressable
-              testID="new-list-create-btn"
-              onPress={onCreate}
-              style={styles.sheetPrimary}
-            >
-              <Text style={styles.sheetPrimaryText}>Create list</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <SwipeableSheet visible={creating} onClose={() => setCreating(false)}>
+        <Text style={styles.sheetTitle}>New list</Text>
+        <TextInput
+          testID="new-list-name-input"
+          value={newName}
+          onChangeText={setNewName}
+          placeholder="e.g. Weekend groceries"
+          placeholderTextColor={colors.onSurfaceTertiary}
+          style={styles.sheetInput}
+          autoFocus
+        />
+        <View style={styles.typeRow}>
+          {(["todo", "grocery", "chores"] as ListType[]).map((t) => {
+            const active = newType === t;
+            return (
+              <Pressable
+                key={t}
+                testID={`type-${t}`}
+                onPress={() => setNewType(t)}
+                style={[styles.typePill, active && styles.typePillOn]}
+              >
+                <Feather name={TYPE_META[t].icon} size={14} color={active ? "#fff" : colors.onSurface} />
+                <Text style={[styles.typePillText, active && { color: "#fff" }]}>
+                  {TYPE_META[t].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable testID="new-list-create-btn" onPress={onCreate} style={styles.sheetPrimary}>
+          <Text style={styles.sheetPrimaryText}>Create list</Text>
+        </Pressable>
+      </SwipeableSheet>
     </View>
   );
 }
@@ -217,6 +206,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
   subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
   headerCta: {

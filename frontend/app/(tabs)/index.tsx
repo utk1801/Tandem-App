@@ -17,38 +17,55 @@ import * as Haptics from "expo-haptics";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
+import type { CalendarEntry, EventItem, ProfileDates } from "@/src/types/calendar";
+import { buildCalendarEntries, parseYmd, startOfDay } from "@/src/utils/calendar";
 
 const HERO = "https://images.unsplash.com/photo-1708465034183-7e3528d41944?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHx3YXJtJTI0bW9ybmluZyUyMHN1bmxpZ2h0JTIwc29mdCUyMGFic3RyYWN0JTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODEzMjMyNzl8MA&ixlib=rb-4.1.0&q=85";
 
 type Quote = { text: string; author: string };
 type Routine = { steps: { id: string; text: string; order: number }[]; completed_today: string[] };
-type EventItem = { id: string; title: string; date: string; time?: string | null; location?: string | null; owner_id: string; owner_username: string; shared: boolean };
 
 export default function Today() {
   const { user } = useAuth();
   const router = useRouter();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [routine, setRoutine] = useState<Routine | null>(null);
-  const [upcoming, setUpcoming] = useState<EventItem[]>([]);
+  const [upcoming, setUpcoming] = useState<CalendarEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [q, r, e] = await Promise.all([
+      const [q, r, meRes, evRes, connRes] = await Promise.all([
         api.get("/quote/today"),
         api.get("/routine"),
+        api.get("/auth/me"),
         api.get("/events"),
+        api.get("/connection"),
       ]);
       setQuote(q.data);
       setRoutine(r.data);
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const horizon = new Date(today); horizon.setDate(today.getDate() + 14);
-      const futureEvents = (e.data || []).filter((ev: EventItem) => {
-        const d = new Date(ev.date + "T00:00:00");
-        return d >= today && d <= horizon;
-      }).slice(0, 5);
-      setUpcoming(futureEvents);
+      const today = startOfDay(new Date());
+      const horizon = new Date(today);
+      horizon.setDate(today.getDate() + 14);
+      const me = meRes.data;
+      const profiles: ProfileDates[] = [{
+        id: me.id,
+        username: me.username,
+        birthday: me.birthday,
+        anniversary: me.anniversary,
+      }];
+      const partner = connRes.data?.partner;
+      if (partner) {
+        profiles.push({
+          id: partner.id,
+          username: partner.username,
+          birthday: partner.birthday,
+          anniversary: partner.anniversary,
+        });
+      }
+      const entries = buildCalendarEntries(evRes.data || [], profiles, today, horizon);
+      setUpcoming(entries.slice(0, 6));
     } catch {
       // ignore
     } finally {
@@ -184,23 +201,27 @@ export default function Today() {
             </View>
             <View style={styles.upcomingList}>
               {upcoming.map((ev) => {
-                const d = new Date(ev.date + "T00:00:00");
-                const today = new Date(); today.setHours(0, 0, 0, 0);
+                const d = parseYmd(ev.date);
+                const today = startOfDay(new Date());
                 const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
                 const when = diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                const icon = ev.kind === "birthday" ? "gift" : ev.kind === "anniversary" ? "heart" : null;
                 return (
                   <Pressable
                     key={ev.id}
                     testID={`upcoming-${ev.id}`}
-                    onPress={() => router.push("/(tabs)/calendar")}
-                    style={styles.upcomingCard}
+                    onPress={() => router.push(ev.kind === "event" && ev.source_id ? `/event/${ev.source_id}` : "/(tabs)/calendar")}
+                    style={[styles.upcomingCard, ev.is_special && styles.upcomingCardSpecial]}
                   >
                     <View style={styles.upcomingDateCol}>
                       <Text style={styles.upcomingWhen}>{when}</Text>
                       {ev.time && <Text style={styles.upcomingTime}>{ev.time}</Text>}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.upcomingTitle} numberOfLines={1}>{ev.title}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+                        {icon && <Feather name={icon as any} size={14} color={colors.brand} />}
+                        <Text style={styles.upcomingTitle} numberOfLines={1}>{ev.title}</Text>
+                      </View>
                       {(ev.location || ev.owner_id !== user?.id) && (
                         <Text style={styles.upcomingMeta} numberOfLines={1}>
                           {ev.location}
@@ -307,6 +328,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surfaceSecondary,
   },
+  upcomingCardSpecial: { borderColor: colors.brandTertiary, backgroundColor: colors.brandTertiary },
   upcomingDateCol: { width: 90 },
   upcomingWhen: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.3, textTransform: "uppercase" },
   upcomingTime: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },

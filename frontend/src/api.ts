@@ -2,8 +2,9 @@
 // Supabase session, so each request always carries a fresh JWT.
 
 import { supabase } from "@/src/supabase";
+import { publicEnv, resolveBackendUrl } from "@/src/env";
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+const BASE = resolveBackendUrl(publicEnv("EXPO_PUBLIC_BACKEND_URL", "backendUrl"));
 const API_BASE = `${BASE}/api`;
 
 type Opts = { params?: Record<string, any>; body?: any };
@@ -22,10 +23,15 @@ async function request(method: string, path: string, opts: Opts = {}): Promise<a
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
 
-  const res = await fetch(url, {
-    method, headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method, headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    throw new Error(`Cannot reach backend at ${BASE}. Start the server (port 8000).`);
+  }
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }

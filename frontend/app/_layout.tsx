@@ -11,6 +11,7 @@ import * as Linking from "expo-linking";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider, useAuth } from "@/src/contexts/AuthContext";
+import { ThemeProvider, useTheme } from "@/src/contexts/ThemeContext";
 import { registerForPush } from "@/src/push";
 
 SplashScreen.preventAutoHideAsync();
@@ -36,6 +37,7 @@ if (Platform.OS === "android") {
 
 function Gate() {
   const { user, loading } = useAuth();
+  const { colors } = useTheme();
   const segments = useSegments();
   const router = useRouter();
 
@@ -55,7 +57,7 @@ function Gate() {
     if (user?.id) registerForPush(user.id);
   }, [user?.id]);
 
-  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FDFCF9" } }} />;
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }} />;
 }
 
 export default function RootLayout() {
@@ -99,9 +101,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <AuthProvider>
-          <Gate />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <Gate />
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

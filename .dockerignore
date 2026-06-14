@@ -1,0 +1,16 @@
+.git
+.gitignore
+**/.env
+**/.env.*
+!**/.env.example
+**/*firebase-service-account.json*
+**/__pycache__
+**/.venv
+**/venv
+**/node_modules
+frontend/.metro-cache
+frontend/.expo
+frontend/ios
+frontend/android
+**/.DS_Store
+memory/test_credentials.md

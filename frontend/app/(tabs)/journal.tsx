@@ -5,18 +5,20 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Modal,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
+import { confirmDelete } from "@/src/utils/confirmDelete";
+import { SwipeableRow } from "@/src/components/SwipeableRow";
+import { SwipeableSheet } from "@/src/components/SwipeableSheet";
+import { MarkdownEditor } from "@/src/components/MarkdownEditor";
+import { stripMarkdown } from "@/src/utils/markdown";
 
 type Thought = { id: string; text: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 type JournalEntry = { id: string; title: string; body: string; mood?: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
@@ -24,11 +26,13 @@ type JournalEntry = { id: string; title: string; body: string; mood?: string; cr
 const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
 
 export default function JournalScreen() {
+  const router = useRouter();
   const { user } = useAuth();
   const [tab, setTab] = useState<"thoughts" | "journal">("thoughts");
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [mood, setMood] = useState<string | undefined>();
@@ -44,19 +48,64 @@ export default function JournalScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const openNew = () => { setCreating(true); setText(""); setTitle(""); setMood(undefined); setShare(false); };
+  const openNew = () => { setEditingId(null); setCreating(true); setText(""); setTitle(""); setMood(undefined); setShare(false); };
+
+  const openEditThought = (t: Thought) => {
+    if (t.owner_id !== user?.id) return;
+    setTab("thoughts");
+    setEditingId(t.id);
+    setCreating(true);
+    setText(t.text);
+    setShare(!!t.shared);
+  };
+
+  const openEditJournal = (e: JournalEntry) => {
+    if (e.owner_id !== user?.id) return;
+    setTab("journal");
+    setEditingId(e.id);
+    setCreating(true);
+    setTitle(e.title);
+    setText(e.body);
+    setMood(e.mood);
+    setShare(!!e.shared);
+  };
 
   const submit = async () => {
     if (tab === "thoughts") {
       if (!text.trim()) return;
-      const res = await api.post("/thoughts", { text: text.trim(), share_with_partner: share });
-      setThoughts((p) => [res.data, ...p]);
+      if (editingId) {
+        const res = await api.patch(`/thoughts/${editingId}`, { text: text.trim(), share_with_partner: share });
+        setThoughts((p) => p.map((x) => (x.id === editingId ? res.data : x)));
+      } else {
+        const res = await api.post("/thoughts", { text: text.trim(), share_with_partner: share });
+        setThoughts((p) => [res.data, ...p]);
+      }
     } else {
       if (!title.trim() && !text.trim()) return;
-      const res = await api.post("/journal", { title: title.trim(), body: text.trim(), mood, share_with_partner: share });
-      setEntries((p) => [res.data, ...p]);
+      if (editingId) {
+        const res = await api.patch(`/journal/${editingId}`, { title: title.trim(), body: text.trim(), mood, share_with_partner: share });
+        setEntries((p) => p.map((x) => (x.id === editingId ? res.data : x)));
+      } else {
+        const res = await api.post("/journal", { title: title.trim(), body: text.trim(), mood, share_with_partner: share });
+        setEntries((p) => [res.data, ...p]);
+      }
     }
     setCreating(false);
+    setEditingId(null);
+  };
+
+  const removeThought = (t: Thought) => {
+    confirmDelete("Delete thought?", "This cannot be undone.", async () => {
+      setThoughts((p) => p.filter((x) => x.id !== t.id));
+      try { await api.delete(`/thoughts/${t.id}`); } catch {/* ignore */}
+    });
+  };
+
+  const removeEntry = (e: JournalEntry) => {
+    confirmDelete("Delete entry?", "This cannot be undone.", async () => {
+      setEntries((p) => p.filter((x) => x.id !== e.id));
+      try { await api.delete(`/journal/${e.id}`); } catch {/* ignore */}
+    });
   };
 
   return (
@@ -100,16 +149,24 @@ export default function JournalScreen() {
           ) : (
             <View style={styles.thoughtsGrid}>
               {thoughts.map((t) => (
-                <View key={t.id} testID={`thought-${t.id}`} style={styles.thoughtCard}>
-                  <Text style={styles.thoughtText}>{t.text}</Text>
-                  <View style={styles.thoughtMeta}>
-                    <Text style={styles.metaSmall}>
-                      {t.owner_id === user?.id ? "you" : t.owner_username}
-                      {t.shared && " · shared"}
-                    </Text>
-                    <Text style={styles.metaSmall}>{new Date(t.created_at).toLocaleDateString()}</Text>
-                  </View>
-                </View>
+                <SwipeableRow
+                  key={t.id}
+                  canEdit={t.owner_id === user?.id}
+                  canDelete={t.owner_id === user?.id}
+                  onEdit={() => openEditThought(t)}
+                  onDelete={() => removeThought(t)}
+                >
+                  <Pressable testID={`thought-${t.id}`} onPress={() => router.push(`/thought/${t.id}`)} style={styles.thoughtCard}>
+                    <Text style={styles.thoughtText} numberOfLines={6}>{stripMarkdown(t.text)}</Text>
+                    <View style={styles.thoughtMeta}>
+                      <Text style={styles.metaSmall}>
+                        {t.owner_id === user?.id ? "you" : t.owner_username}
+                        {t.shared && " · shared"}
+                      </Text>
+                      <Text style={styles.metaSmall}>{new Date(t.created_at).toLocaleDateString()}</Text>
+                    </View>
+                  </Pressable>
+                </SwipeableRow>
               ))}
             </View>
           )
@@ -118,80 +175,79 @@ export default function JournalScreen() {
         ) : (
           <View style={styles.journalList}>
             {entries.map((e) => (
-              <View key={e.id} testID={`journal-${e.id}`} style={styles.journalCard}>
-                <Text style={styles.journalDate}>
-                  {new Date(e.created_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                  {e.mood && `  ·  ${e.mood}`}
-                  {e.owner_id !== user?.id && `  ·  ${e.owner_username}`}
-                  {e.shared && e.owner_id === user?.id && `  ·  shared`}
-                </Text>
-                <Text style={styles.journalTitle}>{e.title}</Text>
-                <Text style={styles.journalBody} numberOfLines={5}>{e.body}</Text>
-              </View>
+              <SwipeableRow
+                key={e.id}
+                canEdit={e.owner_id === user?.id}
+                canDelete={e.owner_id === user?.id}
+                onEdit={() => openEditJournal(e)}
+                onDelete={() => removeEntry(e)}
+              >
+                <Pressable testID={`journal-${e.id}`} onPress={() => router.push(`/journal/${e.id}`)} style={styles.journalCard}>
+                  <Text style={styles.journalDate}>
+                    {new Date(e.created_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                    {e.mood && `  ·  ${e.mood}`}
+                    {e.owner_id !== user?.id && `  ·  ${e.owner_username}`}
+                    {e.shared && e.owner_id === user?.id && `  ·  shared`}
+                  </Text>
+                  <Text style={styles.journalTitle}>{e.title}</Text>
+                  <Text style={styles.journalBody} numberOfLines={5}>{stripMarkdown(e.body)}</Text>
+                </Pressable>
+              </SwipeableRow>
             ))}
           </View>
         )}
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
 
-      <Modal visible={creating} transparent animationType="slide" onRequestClose={() => setCreating(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setCreating(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>{tab === "thoughts" ? "New thought" : "New journal entry"}</Text>
-            {tab === "journal" && (
-              <TextInput
-                testID="entry-title-input"
-                value={title}
-                onChangeText={setTitle}
-                placeholder="Title"
-                placeholderTextColor={colors.onSurfaceTertiary}
-                style={styles.sheetTitleInput}
-              />
-            )}
-            <TextInput
-              testID="entry-body-input"
-              value={text}
-              onChangeText={setText}
-              placeholder={tab === "thoughts" ? "What's on your mind?" : "Write freely…"}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              style={[styles.sheetInput, tab === "journal" && { minHeight: 140 }]}
-              multiline
-              autoFocus
+      <SwipeableSheet visible={creating} onClose={() => setCreating(false)}>
+        <Text style={styles.sheetTitle}>{editingId ? (tab === "thoughts" ? "Edit thought" : "Edit entry") : (tab === "thoughts" ? "New thought" : "New journal entry")}</Text>
+        {tab === "journal" && (
+          <TextInput
+            testID="entry-title-input"
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Title"
+            placeholderTextColor={colors.onSurfaceTertiary}
+            style={styles.sheetTitleInput}
+          />
+        )}
+        <MarkdownEditor
+          testID="entry-body-input"
+          value={text}
+          onChange={setText}
+          placeholder={tab === "thoughts" ? "What's on your mind? Markdown supported." : "Write freely… Markdown supported."}
+          minHeight={tab === "journal" ? 140 : 120}
+        />
+        {tab === "journal" && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+            {MOODS.map((m) => (
+              <Pressable
+                key={m}
+                testID={`mood-${m}`}
+                onPress={() => setMood(mood === m ? undefined : m)}
+                style={[styles.moodChip, mood === m && styles.moodChipOn]}
+              >
+                <Text style={[styles.moodText, mood === m && { color: "#fff" }]}>{m}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+        {user?.partner_id && (
+          <View style={styles.shareRow}>
+            <Text style={styles.shareLabel}>Share with partner</Text>
+            <Switch
+              testID="share-switch"
+              value={share}
+              onValueChange={setShare}
+              trackColor={{ true: colors.brand, false: colors.borderStrong }}
+              thumbColor="#fff"
             />
-            {tab === "journal" && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-                {MOODS.map((m) => (
-                  <Pressable
-                    key={m}
-                    testID={`mood-${m}`}
-                    onPress={() => setMood(mood === m ? undefined : m)}
-                    style={[styles.moodChip, mood === m && styles.moodChipOn]}
-                  >
-                    <Text style={[styles.moodText, mood === m && { color: "#fff" }]}>{m}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-            {user?.partner_id && (
-              <View style={styles.shareRow}>
-                <Text style={styles.shareLabel}>Share with partner</Text>
-                <Switch
-                  testID="share-switch"
-                  value={share}
-                  onValueChange={setShare}
-                  trackColor={{ true: colors.brand, false: colors.borderStrong }}
-                  thumbColor="#fff"
-                />
-              </View>
-            )}
-            <Pressable testID="entry-save-btn" onPress={submit} style={styles.sheetPrimary}>
-              <Text style={styles.sheetPrimaryText}>Save</Text>
-            </Pressable>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        )}
+        <Pressable testID="entry-save-btn" onPress={submit} style={styles.sheetPrimary}>
+          <Text style={styles.sheetPrimaryText}>Save</Text>
+        </Pressable>
+      </SwipeableSheet>
     </View>
   );
 }

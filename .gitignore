@@ -31,9 +31,14 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
+.env
+.env.*
+!.env.example
+!**/.env.example
 
 *token.json*
 *credentials.json*
+*firebase-service-account.json*
 
 # Logs and debug files
 npm-debug.log*
@@ -80,9 +85,13 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
-.env
-.env.*
-*.env
+frontend/.metro-cache/
+frontend/.expo/
+.expo/
+frontend/ios/Pods/
+frontend/ios/build/
+frontend/android/build/
+frontend/android/.gradle/
 credentials.json
 *.key
 .credentials

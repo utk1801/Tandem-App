@@ -2,9 +2,10 @@ import "react-native-url-polyfill/auto";
 import { createClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
+import { publicEnv } from "@/src/env";
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+const SUPABASE_URL = publicEnv("EXPO_PUBLIC_SUPABASE_URL", "supabaseUrl");
+const SUPABASE_ANON_KEY = publicEnv("EXPO_PUBLIC_SUPABASE_ANON_KEY", "supabaseAnonKey");
 
 // Universal storage adapter — SecureStore on native, localStorage on web.
 const UniversalStorage = {

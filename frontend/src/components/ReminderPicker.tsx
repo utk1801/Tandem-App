@@ -6,6 +6,8 @@ import { useState } from "react";
 import { View, Text, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { MonthCalendar } from "@/src/components/MonthCalendar";
+import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 
 export type Reminder = {
   /** ISO datetime string (e.g. 2026-06-13T09:00:00). Null = no due date. */
@@ -56,6 +58,8 @@ export function ReminderPicker({
 }) {
   const parsed = parseISO(value.dueAt);
   const [time, setTime] = useState<string>(parsed.time || "09:00");
+  const [pickerMonth, setPickerMonth] = useState(() => parsed.date || new Date());
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -87,6 +91,10 @@ export function ReminderPicker({
     }
   };
 
+  const calendarLabel = selectedDate
+    ? selectedDate.toLocaleDateString(undefined, { weekday: "short", month: "long", day: "numeric" })
+    : "Choose date";
+
   return (
     <View style={styles.root}>
       <View style={styles.headRow}>
@@ -112,6 +120,31 @@ export function ReminderPicker({
           );
         })}
       </ScrollView>
+
+      <Pressable
+        testID="open-calendar-btn"
+        onPress={() => setCalendarOpen(true)}
+        style={styles.dateBtn}
+      >
+        <Feather name="calendar" size={18} color={colors.brand} />
+        <Text style={styles.dateBtnText}>{calendarLabel}</Text>
+        <Feather name="chevron-right" size={16} color={colors.onSurfaceTertiary} />
+      </Pressable>
+
+      <SwipeableSheet visible={calendarOpen} onClose={() => setCalendarOpen(false)} scrollable={false}>
+        <Text style={styles.calendarTitle}>Pick a date</Text>
+        <MonthCalendar
+          month={pickerMonth}
+          selectedDate={selectedDate}
+          onMonthChange={setPickerMonth}
+          onSelectDate={(d) => {
+            setPickerMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+            setDate(d);
+            setCalendarOpen(false);
+          }}
+          compact
+        />
+      </SwipeableSheet>
 
       {selectedDate && (
         <>
@@ -163,6 +196,19 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
   chipText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
   chipTextOn: { color: "#fff" },
+  dateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  dateBtnText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface },
+  calendarTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, marginBottom: spacing.sm },
   timeRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
   timeInput: { fontFamily: fonts.body, fontSize: fontSize.xl, color: colors.onSurface, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, minWidth: 80 },
   timeHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },

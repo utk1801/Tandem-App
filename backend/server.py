@@ -2,15 +2,19 @@
 Tandem backend — Supabase edition.
 The frontend talks to Supabase Auth directly for signup/login. For each API
 call it sends the Supabase access token in the Authorization header. This
-backend verifies the token with SUPABASE_JWT_SECRET, then performs all DB
+backend verifies the token via Supabase JWKS (ES256/RS256) or legacy
+SUPABASE_JWT_SECRET (HS256), then performs all DB
 operations using the service-role client (which bypasses RLS) but explicitly
 scopes every query by the verified user id.
 """
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 import os
 import logging
 import secrets
@@ -20,33 +24,63 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta
 import jwt as pyjwt
-import httpx
+from jwt import PyJWKClient
 from supabase import create_client, Client
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import anthropic
+import firebase_admin
+from firebase_admin import credentials, messaging
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR.parent / '.env')
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ['SUPABASE_URL']
 SUPABASE_SERVICE_ROLE_KEY = os.environ['SUPABASE_SERVICE_ROLE_KEY']
 SUPABASE_JWT_SECRET = os.environ['SUPABASE_JWT_SECRET']
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-EMERGENT_PUSH_KEY = os.environ.get('EMERGENT_PUSH_KEY', 'placeholder')
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', '')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
+AWS_REGION = os.environ.get('AWS_REGION', 'us-west-2')
+FIREBASE_SERVICE_ACCOUNT_KEY = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY', '')
+FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY_PATH', '')
+FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', '')
+
+
+def _load_firebase_service_account() -> Optional[dict]:
+    if FIREBASE_SERVICE_ACCOUNT_KEY:
+        return json.loads(FIREBASE_SERVICE_ACCOUNT_KEY)
+    key_path = FIREBASE_SERVICE_ACCOUNT_KEY_PATH
+    if not key_path:
+        default = ROOT_DIR / 'firebase-service-account.json'
+        if default.exists():
+            key_path = str(default)
+    if key_path:
+        path = Path(key_path)
+        if not path.is_absolute():
+            path = (ROOT_DIR.parent / path).resolve() if not (ROOT_DIR / path).exists() else (ROOT_DIR / path).resolve()
+        return json.loads(path.read_text())
+    return None
+
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+_jwks_client = PyJWKClient(f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json", cache_keys=True)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Firebase Admin init
+if not firebase_admin._apps:
+    try:
+        _sa = _load_firebase_service_account()
+        if _sa:
+            firebase_admin.initialize_app(credentials.Certificate(_sa))
+    except Exception as _e:
+        logger.warning(f"Firebase init failed: {_e}")
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
-_push_client = httpx.AsyncClient(
-    base_url="https://integrations.emergentagent.com",
-    headers={"X-Push-Key": EMERGENT_PUSH_KEY},
-    timeout=10.0,
-)
 
 
 def now_utc() -> datetime:
@@ -65,27 +99,46 @@ def gen_code(n=6) -> str:
 async def send_push(recipients: List[str], data: dict, idempotency_key: Optional[str] = None) -> None:
     if not recipients or not data.get("title") or not data.get("message"):
         return
-    payload: dict = {"recipients": recipients, "data": data}
-    if idempotency_key:
-        payload["$idempotency_key"] = idempotency_key
+    if not firebase_admin._apps:
+        logger.warning("Firebase not initialized — skipping push")
+        return
     try:
-        resp = await _push_client.post("/api/v1/push/trigger", json=payload)
-        if resp.status_code >= 400:
-            logger.warning(f"Push relay returned {resp.status_code}: {resp.text[:200]}")
+        rows = sb.table("push_tokens").select("device_token").in_("user_id", recipients).execute().data or []
+        tokens = [r["device_token"] for r in rows if r.get("device_token")]
+        if not tokens:
+            return
+        notification = messaging.Notification(title=data["title"], body=data["message"])
+        msgs = [
+            messaging.Message(
+                notification=notification,
+                data={"action_url": data.get("action_url", "")},
+                token=token,
+            )
+            for token in tokens
+        ]
+        result = messaging.send_each(msgs)
+        if result.failure_count:
+            logger.warning(f"Push: {result.failure_count}/{len(tokens)} failed")
     except Exception as e:
         logger.warning(f"Push notification failed (non-blocking): {e}")
+
+
+def _decode_supabase_jwt(token: str) -> dict:
+    """Verify Supabase access tokens (ES256/RS256 via JWKS, or legacy HS256)."""
+    decode_opts = {"verify_aud": False}
+    header = pyjwt.get_unverified_header(token)
+    alg = header.get("alg", "HS256")
+    if alg in ("ES256", "RS256"):
+        key = _jwks_client.get_signing_key_from_jwt(token).key
+        return pyjwt.decode(token, key, algorithms=[alg], options=decode_opts)
+    return pyjwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], options=decode_opts)
 
 
 async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> dict:
     if not creds:
         raise HTTPException(status_code=401, detail="Missing token")
     try:
-        payload = pyjwt.decode(
-            creds.credentials,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},
-        )
+        payload = _decode_supabase_jwt(creds.credentials)
         uid = payload.get("sub")
         email = payload.get("email")
     except pyjwt.ExpiredSignatureError:
@@ -124,8 +177,10 @@ class ListUpdate(BaseModel):
 
 
 class Recurrence(BaseModel):
-    type: str = "none"
+    type: Literal["none", "daily", "weekly", "monthly", "yearly"] = "none"
     weekdays: Optional[List[int]] = None
+    interval: Optional[int] = 1
+    end_date: Optional[str] = None
 
 
 class ItemCreate(BaseModel):
@@ -135,6 +190,9 @@ class ItemCreate(BaseModel):
     due_at: Optional[str] = None
     remind_minutes_before: Optional[int] = None
     recurrence: Optional[Recurrence] = None
+    kind: Optional[Literal["text", "link", "video", "image"]] = "text"
+    url: Optional[str] = None
+    media_uri: Optional[str] = None
 
 
 class ItemUpdate(BaseModel):
@@ -146,6 +204,9 @@ class ItemUpdate(BaseModel):
     remind_minutes_before: Optional[int] = None
     clear_due: Optional[bool] = None
     recurrence: Optional[Recurrence] = None
+    kind: Optional[Literal["text", "link", "video", "image"]] = None
+    url: Optional[str] = None
+    media_uri: Optional[str] = None
 
 
 class ShareReq(BaseModel):
@@ -161,11 +222,23 @@ class ThoughtCreate(BaseModel):
     share_with_partner: bool = False
 
 
+class ThoughtUpdate(BaseModel):
+    text: Optional[str] = None
+    share_with_partner: Optional[bool] = None
+
+
 class JournalCreate(BaseModel):
     title: str
     body: str
     mood: Optional[str] = None
     share_with_partner: bool = False
+
+
+class JournalUpdate(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+    mood: Optional[str] = None
+    share_with_partner: Optional[bool] = None
 
 
 class RoutineStep(BaseModel):
@@ -202,6 +275,14 @@ class EventUpdate(BaseModel):
     location: Optional[str] = None
     remind_minutes_before: Optional[int] = None
     share_with_partner: Optional[bool] = None
+    recurrence: Optional[Recurrence] = None
+
+
+class ProfileUpdate(BaseModel):
+    birthday: Optional[str] = None
+    anniversary: Optional[str] = None
+    clear_birthday: Optional[bool] = None
+    clear_anniversary: Optional[bool] = None
 
 
 class RegisterPushReq(BaseModel):
@@ -215,13 +296,29 @@ async def me(user: dict = Depends(current_user)):
     return user
 
 
+@api_router.patch("/profile")
+async def update_profile(req: ProfileUpdate, user: dict = Depends(current_user)):
+    payload: dict = {}
+    if req.clear_birthday:
+        payload["birthday"] = None
+    elif req.birthday is not None:
+        payload["birthday"] = req.birthday
+    if req.clear_anniversary:
+        payload["anniversary"] = None
+    elif req.anniversary is not None:
+        payload["anniversary"] = req.anniversary
+    if payload:
+        sb.table("profiles").update(payload).eq("id", user["id"]).execute()
+    return sb.table("profiles").select("*").eq("id", user["id"]).limit(1).execute().data[0]
+
+
 # ======================= CONNECTIONS =======================
 @api_router.get("/connection")
 async def get_connection(user: dict = Depends(current_user)):
     pid = user.get("partner_id")
     if not pid:
         return {"partner": None}
-    res = sb.table("profiles").select("id,username,email").eq("id", pid).limit(1).execute()
+    res = sb.table("profiles").select("id,username,email,birthday,anniversary").eq("id", pid).limit(1).execute()
     return {"partner": res.data[0] if res.data else None}
 
 
@@ -396,6 +493,12 @@ async def add_item(list_id: str, req: ItemCreate, user: dict = Depends(current_u
         "recurrence": req.recurrence.dict() if req.recurrence else None,
         "created_by": user["id"],
     }
+    if req.kind:
+        payload["kind"] = req.kind
+    if req.url:
+        payload["url"] = req.url.strip()[:2000]
+    if req.media_uri:
+        payload["media_uri"] = req.media_uri.strip()[:2000]
     item = sb.table("list_items").insert(payload).execute().data[0]
     if lst.get("shared_with") and user.get("partner_id"):
         await send_push(
@@ -423,8 +526,8 @@ async def update_item(item_id: str, req: ItemUpdate, user: dict = Depends(curren
                 update["due_at"] = None
                 update["remind_minutes_before"] = None
             continue
-        if k == "recurrence" and v is not None:
-            update[k] = v if isinstance(v, dict) else v.dict()
+        if k == "recurrence":
+            update[k] = None if v is None else (v if isinstance(v, dict) else v.dict())
             continue
         if v is not None or k == "done":
             update[k] = v
@@ -456,6 +559,20 @@ async def delete_item(item_id: str, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@api_router.get("/items/{item_id}")
+async def get_item(item_id: str, user: dict = Depends(current_user)):
+    item_res = sb.table("list_items").select("*").eq("id", item_id).limit(1).execute()
+    item = item_res.data[0] if item_res.data else None
+    if not item:
+        raise HTTPException(404, "Item not found")
+    lst = _get_accessible_list(item["list_id"], user)
+    if not lst:
+        raise HTTPException(403, "Not allowed")
+    item["list_name"] = lst.get("name")
+    item["list_type"] = lst.get("type")
+    return item
+
+
 # ======================= THOUGHTS =======================
 @api_router.get("/thoughts")
 async def get_thoughts(user: dict = Depends(current_user)):
@@ -483,6 +600,36 @@ async def create_thought(req: ThoughtCreate, user: dict = Depends(current_user))
         "shared": bool(req.share_with_partner and user.get("partner_id")),
     }
     item = sb.table("thoughts").insert(payload).execute().data[0]
+    item["owner_username"] = user["username"]
+    return item
+
+
+@api_router.get("/thoughts/{tid}")
+async def get_thought(tid: str, user: dict = Depends(current_user)):
+    res = sb.table("thoughts").select("*").eq("id", tid).limit(1).execute()
+    item = res.data[0] if res.data else None
+    if not item:
+        raise HTTPException(404, "Not found")
+    if item["owner_id"] != user["id"] and not (user.get("partner_id") and item["owner_id"] == user["partner_id"] and item.get("shared")):
+        raise HTTPException(403, "Not allowed")
+    prof = sb.table("profiles").select("username").eq("id", item["owner_id"]).limit(1).execute()
+    item["owner_username"] = prof.data[0]["username"] if prof.data else ""
+    return item
+
+
+@api_router.patch("/thoughts/{tid}")
+async def update_thought(tid: str, req: ThoughtUpdate, user: dict = Depends(current_user)):
+    res = sb.table("thoughts").select("*").eq("id", tid).eq("owner_id", user["id"]).limit(1).execute()
+    if not res.data:
+        raise HTTPException(404, "Not found")
+    update: dict = {}
+    if req.text is not None:
+        update["text"] = req.text.strip()[:1000]
+    if req.share_with_partner is not None:
+        update["shared"] = bool(req.share_with_partner and user.get("partner_id"))
+    if update:
+        sb.table("thoughts").update(update).eq("id", tid).execute()
+    item = sb.table("thoughts").select("*").eq("id", tid).limit(1).execute().data[0]
     item["owner_username"] = user["username"]
     return item
 
@@ -523,6 +670,40 @@ async def create_journal(req: JournalCreate, user: dict = Depends(current_user))
         "shared": bool(req.share_with_partner and user.get("partner_id")),
     }
     item = sb.table("journal_entries").insert(payload).execute().data[0]
+    item["owner_username"] = user["username"]
+    return item
+
+
+@api_router.get("/journal/{jid}")
+async def get_journal_entry(jid: str, user: dict = Depends(current_user)):
+    res = sb.table("journal_entries").select("*").eq("id", jid).limit(1).execute()
+    item = res.data[0] if res.data else None
+    if not item:
+        raise HTTPException(404, "Not found")
+    if item["owner_id"] != user["id"] and not (user.get("partner_id") and item["owner_id"] == user["partner_id"] and item.get("shared")):
+        raise HTTPException(403, "Not allowed")
+    prof = sb.table("profiles").select("username").eq("id", item["owner_id"]).limit(1).execute()
+    item["owner_username"] = prof.data[0]["username"] if prof.data else ""
+    return item
+
+
+@api_router.patch("/journal/{jid}")
+async def update_journal(jid: str, req: JournalUpdate, user: dict = Depends(current_user)):
+    res = sb.table("journal_entries").select("*").eq("id", jid).eq("owner_id", user["id"]).limit(1).execute()
+    if not res.data:
+        raise HTTPException(404, "Not found")
+    update: dict = {}
+    if req.title is not None:
+        update["title"] = req.title.strip()[:120] or "Untitled"
+    if req.body is not None:
+        update["body"] = req.body.strip()[:10000]
+    if req.mood is not None:
+        update["mood"] = req.mood
+    if req.share_with_partner is not None:
+        update["shared"] = bool(req.share_with_partner and user.get("partner_id"))
+    if update:
+        sb.table("journal_entries").update(update).eq("id", jid).execute()
+    item = sb.table("journal_entries").select("*").eq("id", jid).limit(1).execute().data[0]
     item["owner_username"] = user["username"]
     return item
 
@@ -611,6 +792,19 @@ async def create_event(req: EventCreate, user: dict = Depends(current_user)):
     return ev
 
 
+@api_router.get("/events/{eid}")
+async def get_event(eid: str, user: dict = Depends(current_user)):
+    res = sb.table("events").select("*").eq("id", eid).limit(1).execute()
+    ev = res.data[0] if res.data else None
+    if not ev:
+        raise HTTPException(404, "Not found")
+    if ev["owner_id"] != user["id"] and not (user.get("partner_id") and ev["owner_id"] == user["partner_id"] and ev.get("shared")):
+        raise HTTPException(403, "Not allowed")
+    prof = sb.table("profiles").select("username").eq("id", ev["owner_id"]).limit(1).execute()
+    ev["owner_username"] = prof.data[0]["username"] if prof.data else ""
+    return ev
+
+
 @api_router.patch("/events/{eid}")
 async def update_event(eid: str, req: EventUpdate, user: dict = Depends(current_user)):
     existing = sb.table("events").select("*").eq("id", eid).eq("owner_id", user["id"]).limit(1).execute().data
@@ -619,6 +813,9 @@ async def update_event(eid: str, req: EventUpdate, user: dict = Depends(current_
     payload = req.dict(exclude_unset=True)
     if "share_with_partner" in payload:
         payload["shared"] = bool(payload.pop("share_with_partner") and user.get("partner_id"))
+    if "recurrence" in payload:
+        rec = payload["recurrence"]
+        payload["recurrence"] = None if rec is None else (rec if isinstance(rec, dict) else rec.dict())
     if payload:
         sb.table("events").update(payload).eq("id", eid).execute()
     return sb.table("events").select("*").eq("id", eid).limit(1).execute().data[0]
@@ -640,16 +837,6 @@ async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)
         {"user_id": user["id"], "platform": req.platform, "device_token": req.device_token},
         on_conflict="device_token",
     ).execute()
-    # Forward to Emergent push relay (no-op in dev if key is placeholder).
-    try:
-        resp = await _push_client.post(
-            "/api/v1/push/users/register",
-            json={"user_id": user["id"], "platform": req.platform, "device_token": req.device_token},
-        )
-        if resp.status_code >= 500:
-            logger.warning(f"push relay register: {resp.status_code}")
-    except Exception as e:
-        logger.warning(f"push relay register failed (non-blocking): {e}")
     return {"status": "registered"}
 
 
@@ -664,23 +851,23 @@ async def get_today_quote(user: dict = Depends(current_user)):
     quote_text = "Begin with gentleness — the day will meet you where you are."
     author = "Tandem"
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"quote-{user['id']}-{today}",
-            system_message=(
+        ac = anthropic.AsyncAnthropicBedrock(
+            aws_access_key=AWS_ACCESS_KEY_ID,
+            aws_secret_key=AWS_SECRET_ACCESS_KEY,
+            aws_region=AWS_REGION,
+        )
+        response = await ac.messages.create(
+            model="arn:aws:bedrock:us-west-2:598451516178:inference-profile/global.anthropic.claude-sonnet-4-6",
+            max_tokens=128,
+            system=(
                 "You are a thoughtful, warm life-quote generator. "
                 "Generate ONE original short life quote (max 20 words). "
                 "Then a short author tag (use 'Tandem' if you wrote it). "
                 "Respond as exactly two lines:\nLine1: the quote (no quotes around it)\nLine2: — author"
             ),
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        msg = UserMessage(text=f"Give me today's life quote for {user['username']}.")
-        text_chunks: List[str] = []
-        async for ev in chat.stream_message(msg):
-            content = getattr(ev, "content", None)
-            if isinstance(content, str):
-                text_chunks.append(content)
-        full = "".join(text_chunks).strip()
+            messages=[{"role": "user", "content": f"Give me today's life quote for {user['username']}."}],
+        )
+        full = response.content[0].text.strip() if response.content else ""
         if full:
             lines = [l.strip() for l in full.split("\n") if l.strip()]
             if lines:
@@ -711,6 +898,17 @@ async def health():
 
 
 app.include_router(api_router)
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    return RedirectResponse(url="/api/")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -720,6 +918,14 @@ app.add_middleware(
 )
 
 
-@app.on_event("shutdown")
-async def shutdown_clients():
-    await _push_client.aclose()
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        logger.info("%s %s", request.method, request.url.path)
+        response = await call_next(request)
+        logger.info("%s %s -> %s", request.method, request.url.path, response.status_code)
+        return response
+
+
+app.add_middleware(RequestLogMiddleware)
+
+

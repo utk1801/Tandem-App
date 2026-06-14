@@ -7,6 +7,8 @@ type User = {
   email?: string | null;
   username: string;
   partner_id?: string | null;
+  birthday?: string | null;
+  anniversary?: string | null;
 };
 
 type AuthCtx = {
@@ -20,11 +22,12 @@ type AuthCtx = {
 
 const AuthContext = createContext<AuthCtx | null>(null);
 
-async function fetchProfile(): Promise<User | null> {
+async function fetchProfile(throwOnError = false): Promise<User | null> {
   try {
     const res = await api.get("/auth/me");
     return res.data as User;
-  } catch {
+  } catch (e) {
+    if (throwOnError) throw e;
     return null;
   }
 }
@@ -58,7 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
     });
     if (error) throw new Error(error.message);
-    setUser(await fetchProfile());
+    const profile = await fetchProfile(true);
+    if (!profile) throw new Error("Signed in but could not load your profile.");
+    setUser(profile);
   };
 
   const signUp = async (email: string, username: string, password: string) => {
