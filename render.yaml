@@ -1,7 +1,15 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# 1. Connect this repo in Render
-# 2. Add secret env vars in the dashboard (do not commit real values)
-# 3. Deploy the tandem-api service
+# Deploy via: https://dashboard.render.com/blueprints
+#
+# FREE TIER NOTES:
+# - Instance sleeps after 15 min inactivity (cold start ~30s)
+# - DB connection may drop after sleep — consider a keep-alive or restart logic
+# - No persistent disk; /tmp only, 512 MB RAM, 0.5 CPU
+#
+# Setup:
+#   1. Connect this repo in Render Dashboard → Blueprints
+#   2. Set secret env vars (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, etc.) — do NOT commit real values
+#   3. Deploy
 
 services:
   - type: web
@@ -9,7 +17,8 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
+    region: oregon
     healthCheckPath: /api/
     envVars:
       - key: SUPABASE_URL

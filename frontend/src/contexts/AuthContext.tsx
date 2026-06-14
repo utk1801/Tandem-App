@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/src/supabase";
 import { api } from "@/src/api";
+import { registerForPush } from "@/src/push";
 
 type User = {
   id: string;
@@ -41,13 +42,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (mounted) {
-        if (session) setUser(await fetchProfile());
+        if (session) {
+          const profile = await fetchProfile();
+          setUser(profile);
+          if (profile) registerForPush(profile.id).catch(() => {});
+        }
         setLoading(false);
       }
     })();
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
-      if (session) setUser(await fetchProfile());
+      if (session) {
+        const profile = await fetchProfile();
+        if (mounted) setUser(profile);
+        if (profile) registerForPush(profile.id).catch(() => {});
+      }
       else setUser(null);
     });
     return () => { mounted = false; subscription.unsubscribe(); };
@@ -64,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const profile = await fetchProfile(true);
     if (!profile) throw new Error("Signed in but could not load your profile.");
     setUser(profile);
+    if (profile) registerForPush(profile.id).catch(() => {});
   };
 
   const signUp = async (email: string, username: string, password: string) => {
@@ -75,7 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(error.message);
     // If email confirmations are disabled in Supabase, session is active now.
     const { data: { session } } = await supabase.auth.getSession();
-    if (session) setUser(await fetchProfile());
+    if (session) {
+      const profile = await fetchProfile();
+      setUser(profile);
+      if (profile) registerForPush(profile.id).catch(() => {});
+    }
     else throw new Error("Check your email to confirm your account, then sign in.");
   };
 

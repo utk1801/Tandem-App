@@ -1,4 +1,4 @@
-// Emergent push registration. Native-only — guarded on web.
+// Push registration. Native-only — guarded on web.
 
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";

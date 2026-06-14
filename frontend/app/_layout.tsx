@@ -1,6 +1,7 @@
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { View, ActivityIndicator } from "react-native";
 import { useFonts } from "expo-font";
 import { Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -94,7 +95,15 @@ export default function RootLayout() {
     return () => { tapSub.remove(); };
   }, [router]);
 
-  if (!iconsLoaded && !iconsError) return null;
+  const styles = { loader: { flex: 1, justifyContent: "center" as const, alignItems: "center" as const, backgroundColor: "#FAFAF7" } };
+
+  if (!iconsLoaded && !iconsError) {
+    return (
+      <View style={styles.loader}>
+        <ActivityIndicator size="large" color="#A64D3C" />
+      </View>
+    );
+  }
   void textLoaded;
 
   return (

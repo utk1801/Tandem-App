@@ -15,8 +15,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   username    TEXT UNIQUE NOT NULL,
   email       TEXT,
   partner_id  UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  birthday    DATE,
+  anniversary DATE,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS birthday DATE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS anniversary DATE;
 
 -- -----------------------------------------------------------------------------
 -- invites
@@ -57,6 +62,11 @@ CREATE TABLE IF NOT EXISTS public.list_items (
   created_at               TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS list_items_list_id_idx ON public.list_items(list_id);
+
+-- Multimodal list items (links, video, images) — safe to re-run
+ALTER TABLE public.list_items ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'text';
+ALTER TABLE public.list_items ADD COLUMN IF NOT EXISTS url TEXT;
+ALTER TABLE public.list_items ADD COLUMN IF NOT EXISTS media_uri TEXT;
 
 -- -----------------------------------------------------------------------------
 -- events
