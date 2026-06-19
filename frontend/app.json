@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "com.app.tandem.for.couples",
+      "bundleIdentifier": "com.app.tandem.couples",
       "googleServicesFile": "./GoogleService-Info.plist",
       "podfileProperties": {
         "ios.useModularHeaders": "true"
@@ -22,7 +22,7 @@
       "runtimeVersion": "1.0.0"
     },
     "android": {
-      "package": "com.app.tandem.for.couples",
+      "package": "com.app.tandem.couples",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",

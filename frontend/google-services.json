@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "682306075376",
+    "project_id": "tandem-f23a9",
+    "storage_bucket": "tandem-f23a9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:682306075376:android:aff806f867f8b51616e035",
+        "android_client_info": {
+          "package_name": "com.app.tandem.couples"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQ9IOxMuw-OXIOR0ZdhlrocU_LxOsKIj4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
