@@ -1,28 +1,35 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Tandem",
+    "slug": "tandem",
+    "scheme": "tandem",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "com.tandem.app",
+      "bundleIdentifier": "com.app.tandem.for.couples",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "podfileProperties": {
+        "ios.useModularHeaders": "true"
+      },
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Tandem uses the camera to scan documents and add items to your lists.",
         "NSPhotoLibraryUsageDescription": "Tandem uses your photo library when you attach images to list items."
-      }
+      },
+      "runtimeVersion": "1.0.0"
     },
     "android": {
-      "package": "com.tandem.app",
+      "package": "com.app.tandem.for.couples",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#FAFAF7"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "runtimeVersion": "1.0.0"
     },
     "web": {
       "bundler": "metro",
@@ -30,6 +37,8 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./withProviderFix",
+      "./withPodfileFix",
       "expo-router",
       "expo-dev-client",
       [
@@ -38,14 +47,19 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "backgroundColor": "#FAFAF7"
         }
       ],
       "expo-font",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "updates": {
+      "url": "https://u.expo.dev/633ccb0b-c5b9-417f-a965-54dd7080cf13"
     }
   }
 }

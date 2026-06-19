@@ -1,9 +1,11 @@
-// Local notification scheduling helpers using expo-notifications.
+// Notification scheduling and registration helpers using expo-notifications.
 // Persists scheduled notification IDs keyed by entity id, so cancelling /
 // rescheduling is reliable across app restarts.
 
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
 import { storage } from "@/src/utils/storage";
 
 const MAP_KEY = "tandem_notif_map_v1";
@@ -94,5 +96,47 @@ export async function pendingCount(): Promise<number> {
     return list.length;
   } catch {
     return 0;
+  }
+}
+
+/**
+ * Registers the device for Firebase/Remote Push Notifications.
+ * @returns The push token string or null if failed.
+ */
+export async function registerForRemoteNotificationsAsync(): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+
+  // Remote notifications require a physical device.
+  if (!Device.isDevice) {
+    console.warn("Remote notifications require a physical device.");
+    return null;
+  }
+
+  const hasPermission = await ensurePermissions();
+  if (!hasPermission) return null;
+
+  try {
+    // Android specific channel requirement for remote notifications
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "default",
+        importance: Notifications.AndroidImportance.MAX,
+        lightColor: "#FF231F7C",
+      });
+    }
+
+    // Fetch the token linked to your EAS Project
+    const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+    if (!projectId) {
+      console.error("EAS Project ID not found in app.json configuration.");
+      return null;
+    }
+
+    // Get the Expo Push Token to route through Expo's proxy to Firebase
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    return tokenData.data;
+  } catch (error) {
+    console.error("Failed to fetch push token:", error);
+    return null;
   }
 }

@@ -8,7 +8,7 @@ operations using the service-role client (which bypasses RLS) but explicitly
 scopes every query by the verified user id.
 """
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -886,6 +886,20 @@ async def get_today_quote(user: dict = Depends(current_user)):
 @api_router.get("/")
 async def root():
     return {"app": "Tandem API (Supabase)"}
+
+
+@api_router.post("/test-push")
+async def test_push(
+    user_id: str = Query(..., description="User ID from push_tokens table"),
+    title: str = "Test push",
+    message: str = "Push is working!",
+):
+    """Send a test push notification. Open endpoint — for debugging only. Delete in production."""
+    await send_push(
+        recipients=[user_id],
+        data={"title": title, "message": message, "action_url": "/(tabs)/"},
+    )
+    return {"ok": True, "target_user_id": user_id}
 
 
 @api_router.get("/health")

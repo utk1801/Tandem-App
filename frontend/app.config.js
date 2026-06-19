@@ -19,6 +19,9 @@ module.exports = ({ config }) => ({
   expo: {
     ...appJson.expo,
     extra: {
+      eas: {
+        projectId: "633ccb0b-c5b9-417f-a965-54dd7080cf13",
+      },
       supabaseUrl:
         process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "",
       supabaseAnonKey:
