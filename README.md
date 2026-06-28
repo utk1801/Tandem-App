@@ -178,6 +178,16 @@ render blueprint apply
 
 Free tier: 512MB RAM, 0.5 CPU, sleeps after 15 min inactivity. Cold start ~30s.
 
+**Keepalive setup — prevents cold starts entirely:**
+
+1. Create free account at [cron-job.org](https://cron-job.org)
+2. Click **Create Cronjob** → give it a name
+3. URL: `https://your-backend-name.onrender.com/api/ping`
+4. Schedule: `*/15 * * * *` (every 15 minutes — matches Render free-tier sleep threshold; 96 calls/day fits cron-job.org free limit)
+5. Save
+
+That's it. Backend stays awake. Supabase connection stays warm. Works on free tier of Render.
+
 For production: upgrade to `starter` plan in `render.yaml`.
 
 ### Frontend — EAS Build

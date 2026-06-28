@@ -911,6 +911,17 @@ async def health():
         return {"db": "error", "detail": str(e)[:200]}
 
 
+# ======================= FREE TIER KEEPALIVE =======================
+@api_router.get("/ping")
+async def ping():
+    """No-auth endpoint for external cron services. Prevents Render free-tier sleep and Supabase pause."""
+    try:
+        sb.table("profiles").select("id").limit(1).execute()
+    except Exception:
+        pass
+    return {"pong": True}
+
+
 app.include_router(api_router)
 
 
