@@ -28,18 +28,19 @@ type TandemList = {
   owner_id: string;
 };
 
-const FILTERS: { key: ListType | "all"; label: string }[] = [
+type FilterKey = ListType | "all" | `custom:${string}`;
+
+const BASE_FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "All" },
   { key: "todo", label: "To-do" },
   { key: "grocery", label: "Grocery" },
   { key: "chores", label: "Chores" },
-  { key: "custom", label: "Custom" },
 ];
 
 export default function ListsHub() {
   const router = useRouter();
   const [lists, setLists] = useState<TandemList[]>([]);
-  const [filter, setFilter] = useState<ListType | "all">("all");
+  const [filter, setFilter] = useState<FilterKey>("all");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<ListType>("todo");
@@ -54,7 +55,20 @@ export default function ListsHub() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const filtered = filter === "all" ? lists : lists.filter((l) => l.type === filter);
+  const customLabels = [...new Set(
+    lists.filter((l) => l.type === "custom" && l.custom_label).map((l) => l.custom_label!)
+  )];
+
+  const FILTERS: { key: FilterKey; label: string }[] = [
+    ...BASE_FILTERS,
+    ...customLabels.map((label) => ({ key: (`custom:${label}`) as FilterKey, label })),
+  ];
+
+  const filtered = filter === "all"
+    ? lists
+    : filter.startsWith("custom:")
+    ? lists.filter((l) => l.type === "custom" && l.custom_label === filter.slice(7))
+    : lists.filter((l) => l.type === filter);
 
   const onCreate = async () => {
     if (!newName.trim()) return;

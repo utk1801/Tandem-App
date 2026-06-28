@@ -307,7 +307,7 @@ export default function ListDetail() {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}>
         <FlatList
-          data={data.items}
+          data={[...data.items].sort((a, b) => Number(a.done) - Number(b.done))}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
