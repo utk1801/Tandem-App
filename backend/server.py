@@ -8,7 +8,7 @@ operations using the service-role client (which bypasses RLS) but explicitly
 scopes every query by the verified user id.
 """
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -67,6 +67,9 @@ def _load_firebase_service_account() -> Optional[dict]:
 
 sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 _jwks_client = PyJWKClient(f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json", cache_keys=True)
+
+MEDIA_BUCKET = "list-media"
+SIGNED_URL_TTL = 60 * 60 * 24 * 7  # 7 days
 
 # Firebase Admin init
 if not firebase_admin._apps:
@@ -166,14 +169,47 @@ def _accessible_user_ids(user: dict) -> List[str]:
     return ids
 
 
+def _is_storage_path(uri: str) -> bool:
+    return bool(uri) and not uri.startswith(("http://", "https://", "file://", "ph://", "content://"))
+
+
+def _signed_media_url(path: str) -> str:
+    try:
+        res = sb.storage.from_(MEDIA_BUCKET).create_signed_url(path, SIGNED_URL_TTL)
+        if isinstance(res, dict):
+            return res.get("signedURL") or res.get("signedUrl") or ""
+        return ""
+    except Exception as e:
+        logger.warning(f"Signed URL failed for {path}: {e}")
+        return ""
+
+
+def _resolve_media_uri(uri: Optional[str]) -> Optional[str]:
+    if not uri:
+        return None
+    if _is_storage_path(uri):
+        return _signed_media_url(uri) or uri
+    return uri
+
+
+def _resolve_items_media(items: list) -> None:
+    for it in items:
+        if it.get("media_uri"):
+            it["media_uri"] = _resolve_media_uri(it["media_uri"])
+
+
 # ======================= MODELS =======================
 class ListCreate(BaseModel):
     name: str
-    type: Literal["todo", "grocery", "chores"]
+    type: Literal["todo", "grocery", "chores", "custom"]
+    custom_label: Optional[str] = None
+    share_with_partner: bool = False
 
 
 class ListUpdate(BaseModel):
     name: Optional[str] = None
+    custom_label: Optional[str] = None
+    share_with_partner: Optional[bool] = None
 
 
 class Recurrence(BaseModel):
@@ -290,6 +326,10 @@ class RegisterPushReq(BaseModel):
     device_token: str
 
 
+class CommentCreate(BaseModel):
+    body: str
+
+
 # ======================= AUTH (Supabase-managed) =======================
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(current_user)):
@@ -389,18 +429,19 @@ async def disconnect(user: dict = Depends(current_user)):
 # ======================= LISTS =======================
 @api_router.get("/lists")
 async def get_lists(type: Optional[str] = None, user: dict = Depends(current_user)):
-    ids = _accessible_user_ids(user)
-    q = sb.table("lists").select("*").in_("owner_id", ids).order("created_at", desc=True)
+    q = sb.table("lists").select("*").eq("owner_id", user["id"]).order("created_at", desc=True)
     if type:
         q = q.eq("type", type)
     lists = q.execute().data or []
-    # Also include lists shared_with where current user is included
-    extra = sb.table("lists").select("*").contains("shared_with", [user["id"]]).execute().data or []
-    seen = {l["id"] for l in lists}
-    for l in extra:
-        if l["id"] not in seen:
-            lists.append(l)
-            seen.add(l["id"])
+    if user.get("partner_id"):
+        pq = sb.table("lists").select("*").eq("owner_id", user["partner_id"]).contains("shared_with", [user["id"]]).order("created_at", desc=True)
+        if type:
+            pq = pq.eq("type", type)
+        seen = {l["id"] for l in lists}
+        for l in pq.execute().data or []:
+            if l["id"] not in seen:
+                lists.append(l)
+                seen.add(l["id"])
     list_ids = [l["id"] for l in lists]
     counts: dict = {}
     if list_ids:
@@ -421,8 +462,10 @@ async def create_list(req: ListCreate, user: dict = Depends(current_user)):
         "owner_id": user["id"],
         "name": req.name.strip()[:80] or "Untitled",
         "type": req.type,
-        "shared_with": [user["partner_id"]] if user.get("partner_id") else [],
+        "shared_with": [user["partner_id"]] if (req.share_with_partner and user.get("partner_id")) else [],
     }
+    if req.type == "custom":
+        payload["custom_label"] = (req.custom_label or req.name).strip()[:40] or "Custom"
     res = sb.table("lists").insert(payload).execute()
     lst = res.data[0]
     lst["item_count"] = 0
@@ -430,8 +473,8 @@ async def create_list(req: ListCreate, user: dict = Depends(current_user)):
     if lst["shared_with"]:
         await send_push(
             recipients=[user["partner_id"]],
-            data={"title": f"{user['username']} started a new list", "message": lst["name"], "action_url": f"/list/{lst['id']}"},
-            idempotency_key=f"list-create-{lst['id']}",
+            data={"title": f"{user['username']} shared a list", "message": lst["name"], "action_url": f"/list/{lst['id']}"},
+            idempotency_key=f"list-share-{lst['id']}",
         )
     return lst
 
@@ -454,6 +497,7 @@ async def get_list(list_id: str, user: dict = Depends(current_user)):
     if not lst:
         raise HTTPException(404, "List not found")
     items = sb.table("list_items").select("*").eq("list_id", list_id).order("created_at").execute().data or []
+    _resolve_items_media(items)
     lst["items"] = items
     return lst
 
@@ -463,10 +507,30 @@ async def update_list(list_id: str, req: ListUpdate, user: dict = Depends(curren
     lst = _get_accessible_list(list_id, user)
     if not lst:
         raise HTTPException(404, "List not found")
+    update: dict = {}
+    was_shared = bool(lst.get("shared_with"))
     if req.name is not None:
-        sb.table("lists").update({"name": req.name.strip()[:80]}).eq("id", list_id).execute()
+        update["name"] = req.name.strip()[:80]
+    if req.custom_label is not None and lst.get("type") == "custom":
+        update["custom_label"] = req.custom_label.strip()[:40] or "Custom"
+    if req.share_with_partner is not None:
+        if lst["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the list owner can change sharing")
+        if req.share_with_partner and user.get("partner_id"):
+            update["shared_with"] = [user["partner_id"]]
+        else:
+            update["shared_with"] = []
+    if update:
+        sb.table("lists").update(update).eq("id", list_id).execute()
     res = sb.table("lists").select("*").eq("id", list_id).limit(1).execute()
-    return res.data[0]
+    updated = res.data[0]
+    if req.share_with_partner and user.get("partner_id") and not was_shared and updated.get("shared_with"):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={"title": f"{user['username']} shared a list", "message": updated["name"], "action_url": f"/list/{list_id}"},
+            idempotency_key=f"list-share-{list_id}",
+        )
+    return updated
 
 
 @api_router.delete("/lists/{list_id}")
@@ -500,6 +564,8 @@ async def add_item(list_id: str, req: ItemCreate, user: dict = Depends(current_u
     if req.media_uri:
         payload["media_uri"] = req.media_uri.strip()[:2000]
     item = sb.table("list_items").insert(payload).execute().data[0]
+    if item.get("media_uri"):
+        item["media_uri"] = _resolve_media_uri(item["media_uri"])
     if lst.get("shared_with") and user.get("partner_id"):
         await send_push(
             recipients=[user["partner_id"]],
@@ -534,6 +600,8 @@ async def update_item(item_id: str, req: ItemUpdate, user: dict = Depends(curren
     if update:
         sb.table("list_items").update(update).eq("id", item_id).execute()
     updated = sb.table("list_items").select("*").eq("id", item_id).limit(1).execute().data[0]
+    if updated.get("media_uri"):
+        updated["media_uri"] = _resolve_media_uri(updated["media_uri"])
     if (
         updated.get("done") and update.get("done") is True
         and lst.get("shared_with") and user.get("partner_id")
@@ -570,7 +638,104 @@ async def get_item(item_id: str, user: dict = Depends(current_user)):
         raise HTTPException(403, "Not allowed")
     item["list_name"] = lst.get("name")
     item["list_type"] = lst.get("type")
+    item["list_custom_label"] = lst.get("custom_label")
+    if item.get("media_uri"):
+        item["media_uri"] = _resolve_media_uri(item["media_uri"])
     return item
+
+
+def _get_accessible_item(item_id: str, user: dict) -> tuple[Optional[dict], Optional[dict]]:
+    item_res = sb.table("list_items").select("*").eq("id", item_id).limit(1).execute()
+    item = item_res.data[0] if item_res.data else None
+    if not item:
+        return None, None
+    lst = _get_accessible_list(item["list_id"], user)
+    if not lst:
+        return None, None
+    return item, lst
+
+
+def _attach_comment_authors(comments: list) -> None:
+    pids = {c["author_id"] for c in comments}
+    if not pids:
+        return
+    profiles = sb.table("profiles").select("id,username").in_("id", list(pids)).execute().data or []
+    name_by_id = {p["id"]: p["username"] for p in profiles}
+    for c in comments:
+        c["author_username"] = name_by_id.get(c["author_id"], "")
+
+
+@api_router.get("/items/{item_id}/comments")
+async def get_item_comments(item_id: str, user: dict = Depends(current_user)):
+    item, lst = _get_accessible_item(item_id, user)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    comments = sb.table("item_comments").select("*").eq("item_id", item_id).order("created_at").execute().data or []
+    _attach_comment_authors(comments)
+    return comments
+
+
+@api_router.post("/items/{item_id}/comments")
+async def create_item_comment(item_id: str, req: CommentCreate, user: dict = Depends(current_user)):
+    item, lst = _get_accessible_item(item_id, user)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    body = req.body.strip()[:1000]
+    if not body:
+        raise HTTPException(400, "Comment cannot be empty")
+    comment = sb.table("item_comments").insert({
+        "item_id": item_id,
+        "author_id": user["id"],
+        "body": body,
+    }).execute().data[0]
+    comment["author_username"] = user["username"]
+    if lst.get("shared_with") and user.get("partner_id"):
+        partner_id = user["partner_id"]
+        if partner_id != user["id"]:
+            await send_push(
+                recipients=[partner_id],
+                data={
+                    "title": f"{user['username']} commented",
+                    "message": f"{lst['name']}: {item['text'][:80]}",
+                    "action_url": f"/item/{item_id}",
+                },
+                idempotency_key=f"comment-{comment['id']}",
+            )
+    return comment
+
+
+@api_router.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: str, user: dict = Depends(current_user)):
+    res = sb.table("item_comments").select("*").eq("id", comment_id).limit(1).execute()
+    comment = res.data[0] if res.data else None
+    if not comment:
+        raise HTTPException(404, "Comment not found")
+    if comment["author_id"] != user["id"]:
+        raise HTTPException(403, "You can only delete your own comments")
+    sb.table("item_comments").delete().eq("id", comment_id).execute()
+    return {"ok": True}
+
+
+@api_router.post("/upload/image")
+async def upload_image(file: UploadFile = File(...), user: dict = Depends(current_user)):
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "File must be an image")
+    data = await file.read()
+    if len(data) > 5_000_000:
+        raise HTTPException(400, "Image too large (max 5 MB)")
+    ext = file.content_type.split("/")[-1].replace("jpeg", "jpg")
+    path = f"{user['id']}/{secrets.token_hex(8)}.{ext}"
+    try:
+        sb.storage.from_(MEDIA_BUCKET).upload(
+            path,
+            data,
+            {"content-type": file.content_type, "upsert": "false"},
+        )
+    except Exception as e:
+        logger.warning(f"Storage upload failed: {e}")
+        raise HTTPException(500, "Image upload failed")
+    url = _signed_media_url(path)
+    return {"path": path, "url": url}
 
 
 # ======================= THOUGHTS =======================
@@ -913,7 +1078,7 @@ async def health():
 
 # ======================= FREE TIER KEEPALIVE =======================
 @api_router.get("/ping")
-async def ping():
+def ping():
     """No-auth endpoint for external cron services. Prevents Render free-tier sleep and Supabase pause."""
     try:
         sb.table("profiles").select("id").limit(1).execute()
