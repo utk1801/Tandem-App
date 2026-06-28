@@ -31,6 +31,7 @@ import anthropic
 import firebase_admin
 from firebase_admin import credentials, messaging
 import json
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -95,6 +96,19 @@ def now_utc() -> datetime:
 def today_quote_date() -> str:
     """Quote cache key — rolls over at midnight Pacific time."""
     return datetime.now(QUOTE_TZ).strftime("%Y-%m-%d")
+
+
+def _first_name(user: dict) -> str:
+    """Derive a friendly first name from username or email."""
+    raw = (user.get("username") or user.get("email") or "friend").split("@")[0]
+    for sep in ("_", ".", "-", " "):
+        if sep in raw:
+            raw = raw.split(sep)[0]
+            break
+    name = raw.strip()
+    if not name:
+        return "Friend"
+    return name[0].upper() + name[1:].lower() if len(name) > 1 else name.upper()
 
 
 def iso(dt: datetime) -> str:
@@ -217,6 +231,16 @@ class ListUpdate(BaseModel):
     name: Optional[str] = None
     custom_label: Optional[str] = None
     share_with_partner: Optional[bool] = None
+
+
+class ParseNaturalLanguageReq(BaseModel):
+    text: str
+    list_id: Optional[str] = None
+
+
+class ParsedNLItem(BaseModel):
+    text: str
+    qty: Optional[str] = None
 
 
 class Recurrence(BaseModel):
@@ -461,6 +485,177 @@ async def get_lists(type: Optional[str] = None, user: dict = Depends(current_use
         l["item_count"] = total
         l["done_count"] = done
     return lists
+
+
+def _extract_json_object(raw: str) -> Optional[dict]:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _normalize_parsed_list(data: dict, existing_type: Optional[str] = None) -> dict:
+    list_type = data.get("type") or existing_type or "todo"
+    if list_type not in ("todo", "grocery", "chores", "custom"):
+        list_type = existing_type or "todo"
+    if existing_type:
+        list_type = existing_type
+
+    items_raw = data.get("items") or []
+    items: list = []
+    if isinstance(items_raw, list):
+        for it in items_raw:
+            if isinstance(it, str):
+                text = it.strip()
+                if text:
+                    items.append({"text": text[:200], "qty": None})
+            elif isinstance(it, dict):
+                text = str(it.get("text") or "").strip()
+                if text:
+                    qty = it.get("qty")
+                    items.append({
+                        "text": text[:200],
+                        "qty": str(qty).strip()[:40] if qty else None,
+                    })
+
+    custom_label = data.get("custom_label")
+    if list_type == "custom":
+        custom_label = (str(custom_label).strip()[:40] if custom_label else None) or "Custom"
+    else:
+        custom_label = None
+
+    list_name = str(data.get("list_name") or "").strip()[:80] or None
+
+    return {
+        "list_name": list_name,
+        "type": list_type,
+        "custom_label": custom_label,
+        "items": items,
+    }
+
+
+def _parse_nl_heuristic(text: str, existing_type: Optional[str] = None) -> dict:
+    lower = text.lower()
+    list_type = existing_type or "todo"
+    custom_label = None
+    list_name = None
+
+    if not existing_type:
+        if any(w in lower for w in ("grocery", "groceries", "shopping list", "buy at")):
+            list_type = "grocery"
+            list_name = "Groceries"
+        elif any(w in lower for w in ("chore", "chores", "cleaning", "housework")):
+            list_type = "chores"
+            list_name = "Chores"
+        elif "weekend" in lower and "todo" not in lower:
+            list_type = "todo"
+            list_name = "Weekend to-dos"
+
+    cleaned = text.strip()
+    cleaned = re.sub(r"^(please\s+)?(add|put|include)\s+", "", cleaned, flags=re.I)
+    parts = re.split(r"[,;\n]+|\band\b", cleaned, flags=re.I)
+    items: list = []
+    for part in parts:
+        chunk = part.strip()
+        chunk = re.sub(r"^(to\s+)?(my\s+)?(the\s+)?(\w+\s+list\s*)", "", chunk, flags=re.I).strip()
+        chunk = re.sub(r"^(add|get|pick up|buy)\s+", "", chunk, flags=re.I).strip()
+        if len(chunk) >= 2 and chunk.lower() not in ("todo", "grocery", "chores"):
+            items.append({"text": chunk[:200], "qty": None})
+
+    return _normalize_parsed_list({
+        "list_name": list_name,
+        "type": list_type,
+        "custom_label": custom_label,
+        "items": items,
+    }, existing_type=existing_type)
+
+
+async def _parse_nl_with_ai(
+    text: str,
+    existing_type: Optional[str] = None,
+    existing_name: Optional[str] = None,
+) -> Optional[dict]:
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        return None
+    context = ""
+    if existing_type and existing_name:
+        context = (
+            f"The user is adding items to an existing list named \"{existing_name}\" "
+            f"(type: {existing_type}). Infer ONLY items; set type to \"{existing_type}\"."
+        )
+    else:
+        context = (
+            "Infer list_name, type (todo|grocery|chores|custom), optional custom_label when type is custom, "
+            "and items array."
+        )
+    try:
+        ac = anthropic.AsyncAnthropicBedrock(
+            aws_access_key=AWS_ACCESS_KEY_ID,
+            aws_secret_key=AWS_SECRET_ACCESS_KEY,
+            aws_region=AWS_REGION,
+        )
+        response = await ac.messages.create(
+            model="arn:aws:bedrock:us-west-2:598451516178:inference-profile/global.anthropic.claude-sonnet-4-6",
+            max_tokens=512,
+            system=(
+                "You parse natural language into structured list data for a couple companion app. "
+                f"{context} "
+                "Return ONLY valid JSON (no markdown) with this shape:\n"
+                '{"list_name":"string or null","type":"todo|grocery|chores|custom",'
+                '"custom_label":"string or null","items":[{"text":"string","qty":"string or null"}]}\n'
+                "Rules: split compound requests into separate items; grocery items may include qty; "
+                "ignore filler words; max 30 items."
+            ),
+            messages=[{"role": "user", "content": text.strip()[:2000]}],
+        )
+        full = response.content[0].text.strip() if response.content else ""
+        parsed = _extract_json_object(full)
+        if not parsed:
+            return None
+        return _normalize_parsed_list(parsed, existing_type=existing_type)
+    except Exception as e:
+        logger.warning(f"NL list parse AI failed: {e}")
+        return None
+
+
+@api_router.post("/lists/parse-natural-language")
+async def parse_natural_language_list(req: ParseNaturalLanguageReq, user: dict = Depends(current_user)):
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(400, "Text is required")
+    if len(text) > 2000:
+        raise HTTPException(400, "Text too long (max 2000 characters)")
+
+    existing_type: Optional[str] = None
+    existing_name: Optional[str] = None
+    if req.list_id:
+        lst = _get_accessible_list(req.list_id, user)
+        if not lst:
+            raise HTTPException(404, "List not found")
+        existing_type = lst.get("type")
+        existing_name = lst.get("name")
+
+    parsed = await _parse_nl_with_ai(text, existing_type, existing_name)
+    used_ai = parsed is not None
+    if not parsed:
+        parsed = _parse_nl_heuristic(text, existing_type)
+
+    if not parsed["items"]:
+        raise HTTPException(400, "Could not find any list items in that text")
+
+    parsed["used_ai"] = used_ai
+    return parsed
 
 
 @api_router.post("/lists")
@@ -1016,11 +1211,14 @@ async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)
 @api_router.get("/quote/today")
 async def get_today_quote(user: dict = Depends(current_user)):
     today = today_quote_date()
+    first_name = _first_name(user)
     cached = sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data
     if cached:
-        return cached[0]
+        row = cached[0]
+        row["first_name"] = first_name
+        return row
 
-    quote_text = "Begin with gentleness — the day will meet you where you are."
+    quote_text = f"{first_name}, begin with gentleness — the day will meet you where you are."
     author = "Tandem"
     try:
         ac = anthropic.AsyncAnthropicBedrock(
@@ -1032,12 +1230,14 @@ async def get_today_quote(user: dict = Depends(current_user)):
             model="arn:aws:bedrock:us-west-2:598451516178:inference-profile/global.anthropic.claude-sonnet-4-6",
             max_tokens=128,
             system=(
-                "You are a thoughtful, warm life-quote generator. "
-                "Generate ONE original short life quote (max 20 words). "
+                "You are a thoughtful, warm life-quote generator for Tandem, a couple companion app. "
+                "Generate ONE original short life quote (max 25 words). "
+                "Make it feel personal — you may use the person's first name naturally once if it fits. "
+                "Tone: calm, encouraging, partnership-aware (not romantic cliché). "
                 "Then a short author tag (use 'Tandem' if you wrote it). "
                 "Respond as exactly two lines:\nLine1: the quote (no quotes around it)\nLine2: — author"
             ),
-            messages=[{"role": "user", "content": f"Give me today's life quote for {user['username']}."}],
+            messages=[{"role": "user", "content": f"Today's quote for {first_name}."}],
         )
         full = response.content[0].text.strip() if response.content else ""
         if full:
@@ -1052,7 +1252,9 @@ async def get_today_quote(user: dict = Depends(current_user)):
     sb.table("quotes").insert({
         "user_id": user["id"], "date": today, "text": quote_text, "author": author,
     }).execute()
-    return sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data[0]
+    row = sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data[0]
+    row["first_name"] = first_name
+    return row
 
 
 @api_router.get("/")
