@@ -57,7 +57,7 @@ export default function ListsHub() {
 
   const customLabels = [...new Set(
     lists.filter((l) => l.type === "custom" && l.custom_label).map((l) => l.custom_label!)
-  )];
+  )].sort((a, b) => a.localeCompare(b));
 
   const FILTERS: { key: FilterKey; label: string }[] = [
     ...BASE_FILTERS,
