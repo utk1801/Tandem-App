@@ -23,6 +23,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import jwt as pyjwt
 from jwt import PyJWKClient
 from supabase import create_client, Client
@@ -70,6 +71,7 @@ _jwks_client = PyJWKClient(f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks
 
 MEDIA_BUCKET = "list-media"
 SIGNED_URL_TTL = 60 * 60 * 24 * 7  # 7 days
+QUOTE_TZ = ZoneInfo("America/Los_Angeles")
 
 # Firebase Admin init
 if not firebase_admin._apps:
@@ -88,6 +90,11 @@ bearer = HTTPBearer(auto_error=False)
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def today_quote_date() -> str:
+    """Quote cache key — rolls over at midnight Pacific time."""
+    return datetime.now(QUOTE_TZ).strftime("%Y-%m-%d")
 
 
 def iso(dt: datetime) -> str:
@@ -1008,7 +1015,7 @@ async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)
 # ======================= DAILY QUOTE =======================
 @api_router.get("/quote/today")
 async def get_today_quote(user: dict = Depends(current_user)):
-    today = now_utc().strftime("%Y-%m-%d")
+    today = today_quote_date()
     cached = sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data
     if cached:
         return cached[0]
