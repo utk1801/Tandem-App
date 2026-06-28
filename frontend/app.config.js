@@ -13,6 +13,18 @@ loadEnv(path.resolve(__dirname, ".env"));
 
 const appJson = require("./app.json");
 const withIosPathSpacesFix = require("./plugins/withIosPathSpacesFix");
+const withPersonalTeamIos = require("./plugins/withPersonalTeamIos");
+
+const personalTeam = process.env.EXPO_PUBLIC_IOS_PERSONAL_TEAM === "1";
+
+const basePlugins = (appJson.expo.plugins || []).filter((p) => {
+  if (!personalTeam) return true;
+  const name = Array.isArray(p) ? p[0] : p;
+  return name !== "@react-native-firebase/messaging";
+});
+
+const plugins = [...basePlugins, withIosPathSpacesFix];
+if (personalTeam) plugins.push(withPersonalTeamIos);
 
 module.exports = ({ config }) => ({
   ...config,
@@ -33,6 +45,6 @@ module.exports = ({ config }) => ({
         process.env.BACKEND_URL ||
         "http://localhost:8000",
     },
-    plugins: [...(appJson.expo.plugins || []), withIosPathSpacesFix],
+    plugins,
   },
 });

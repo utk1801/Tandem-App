@@ -19,10 +19,11 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import type { CalendarEntry, EventItem, ProfileDates } from "@/src/types/calendar";
 import { buildCalendarEntries, parseYmd, startOfDay } from "@/src/utils/calendar";
+import { firstNameFromUser } from "@/src/utils/firstName";
 
 const HERO = "https://images.unsplash.com/photo-1708465034183-7e3528d41944?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHx3YXJtJTI0bW9ybmluZyUyMHN1bmxpZ2h0JTIwc29mdCUyMGFic3RyYWN0JTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODEzMjMyNzl8MA&ixlib=rb-4.1.0&q=85";
 
-type Quote = { text: string; author: string };
+type Quote = { text: string; author: string; first_name?: string };
 type Routine = { steps: { id: string; text: string; order: number }[]; completed_today: string[] };
 
 export default function Today() {
@@ -83,6 +84,7 @@ export default function Today() {
     if (h < 18) return "Good afternoon";
     return "Good evening";
   })();
+  const displayName = quote?.first_name || firstNameFromUser(user?.username, user?.email);
 
   const toggleStep = async (stepId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -123,7 +125,7 @@ export default function Today() {
             style={StyleSheet.absoluteFill}
           />
           <SafeAreaView edges={["top"]} style={styles.heroSafe}>
-            <Text style={styles.greeting}>{greeting}, {user?.username}.</Text>
+            <Text style={styles.greeting}>{greeting}, {displayName}.</Text>
           </SafeAreaView>
           <View style={styles.heroQuote}>
             {loading && !quote ? (

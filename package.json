@@ -1,0 +1,11 @@
+{
+  "name": "Tandem-App",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "npm --prefix frontend run start",
+    "ios": "npm --prefix frontend run ios",
+    "android": "npm --prefix frontend run android",
+    "ios:device": "npm --prefix frontend exec -- expo run:ios --device"
+  }
+}

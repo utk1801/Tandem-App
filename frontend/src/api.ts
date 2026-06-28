@@ -53,6 +53,31 @@ export const api = {
   delete: (path: string) => request("DELETE", path),
 };
 
+export async function uploadImage(localUri: string): Promise<{ path: string; url: string }> {
+  const headers: Record<string, string> = {};
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+
+  const filename = localUri.split("/").pop() || "photo.jpg";
+  const form = new FormData();
+  form.append("file", { uri: localUri, name: filename, type: "image/jpeg" } as any);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/upload/image`, { method: "POST", headers, body: form });
+  } catch {
+    throw new Error(`Cannot reach backend at ${BASE}. Start the server (port 8000).`);
+  }
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const detail = (data && data.detail) || `Upload failed (${res.status})`;
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return data;
+}
+
 // Compatibility shim — old code calls setAuthToken; with Supabase the token
 // is managed by the session, so this is a no-op kept to avoid touching imports.
 export function setAuthToken(_t: string | null) { /* no-op */ }

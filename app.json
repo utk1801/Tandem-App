@@ -1,0 +1,17 @@
+{
+  "ios": {
+    "bundleIdentifier": "com.anonymous.tandem-app"
+  },
+  "extra": {
+    "eas": {
+      "projectId": "633ccb0b-c5b9-417f-a965-54dd7080cf13"
+    }
+  },
+  "owner": "utk1801",
+  "slug": "tandem",
+  "expo": {
+    "android": {
+      "package": "com.utk1801.tandem"
+    }
+  }
+}
