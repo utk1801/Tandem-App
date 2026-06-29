@@ -19,10 +19,11 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import type { CalendarEntry, EventItem, ProfileDates } from "@/src/types/calendar";
 import { buildCalendarEntries, parseYmd, startOfDay } from "@/src/utils/calendar";
+import { firstNameFromUser } from "@/src/utils/firstName";
 
 const HERO = "https://images.unsplash.com/photo-1708465034183-7e3528d41944?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHx3YXJtJTI0bW9ybmluZyUyMHN1bmxpZ2h0JTIwc29mdCUyMGFic3RyYWN0JTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODEzMjMyNzl8MA&ixlib=rb-4.1.0&q=85";
 
-type Quote = { text: string; author: string };
+type Quote = { text: string; author: string; first_name?: string };
 type Routine = { steps: { id: string; text: string; order: number }[]; completed_today: string[] };
 
 export default function Today() {
@@ -83,6 +84,7 @@ export default function Today() {
     if (h < 18) return "Good afternoon";
     return "Good evening";
   })();
+  const displayName = quote?.first_name || firstNameFromUser(user?.username, user?.email);
 
   const toggleStep = async (stepId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -123,7 +125,17 @@ export default function Today() {
             style={StyleSheet.absoluteFill}
           />
           <SafeAreaView edges={["top"]} style={styles.heroSafe}>
-            <Text style={styles.greeting}>{greeting}, {user?.username}.</Text>
+            <View style={styles.heroTopRow}>
+              <Text style={styles.greeting}>{greeting}, {displayName}.</Text>
+              <Pressable
+                testID="reminders-btn"
+                onPress={() => router.push("/reminders")}
+                hitSlop={10}
+                style={styles.bellBtn}
+              >
+                <Feather name="bell" size={20} color="rgba(253,252,249,0.85)" />
+              </Pressable>
+            </View>
           </SafeAreaView>
           <View style={styles.heroQuote}>
             {loading && !quote ? (
@@ -237,6 +249,24 @@ export default function Today() {
           </View>
         )}
 
+        {/* Date night planner */}
+        <View style={styles.section}>
+          <Pressable
+            testID="date-night-btn"
+            onPress={() => router.push("/date-night")}
+            style={styles.dateNightCard}
+          >
+            <View style={styles.dateNightLeft}>
+              <Feather name="heart" size={20} color={colors.brand} />
+              <View>
+                <Text style={styles.dateNightTitle}>Plan a date night</Text>
+                <Text style={styles.dateNightHint}>3 ideas, tailored to you.</Text>
+              </View>
+            </View>
+            <Feather name="arrow-right" size={18} color={colors.brand} />
+          </Pressable>
+        </View>
+
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
     </View>
@@ -253,6 +283,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   heroSafe: { paddingHorizontal: spacing.xl, paddingTop: spacing.md },
+  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  bellBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   greeting: { fontFamily: fonts.body, fontSize: fontSize.base, color: "rgba(253,252,249,0.85)" },
   heroQuote: { padding: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
   quoteText: {
@@ -334,4 +366,18 @@ const styles = StyleSheet.create({
   upcomingTime: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   upcomingTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
   upcomingMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  dateNightCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.brandTertiary,
+    borderRadius: radius.lg,
+    backgroundColor: colors.brandTertiary,
+  },
+  dateNightLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  dateNightTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  dateNightHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, marginTop: 2 },
 });

@@ -37,16 +37,22 @@ CREATE TABLE IF NOT EXISTS public.invites (
 );
 
 -- -----------------------------------------------------------------------------
--- lists  (todo / grocery / chores)
+-- lists  (todo / grocery / chores / custom)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.lists (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id     UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   name         TEXT NOT NULL,
-  type         TEXT NOT NULL CHECK (type IN ('todo','grocery','chores')),
+  type         TEXT NOT NULL CHECK (type IN ('todo','grocery','chores','custom')),
+  custom_label TEXT,
   shared_with  UUID[] DEFAULT ARRAY[]::UUID[],
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.lists ADD COLUMN IF NOT EXISTS custom_label TEXT;
+ALTER TABLE public.lists DROP CONSTRAINT IF EXISTS lists_type_check;
+ALTER TABLE public.lists ADD CONSTRAINT lists_type_check
+  CHECK (type IN ('todo','grocery','chores','custom'));
 
 CREATE TABLE IF NOT EXISTS public.list_items (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,6 +73,26 @@ CREATE INDEX IF NOT EXISTS list_items_list_id_idx ON public.list_items(list_id);
 ALTER TABLE public.list_items ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'text';
 ALTER TABLE public.list_items ADD COLUMN IF NOT EXISTS url TEXT;
 ALTER TABLE public.list_items ADD COLUMN IF NOT EXISTS media_uri TEXT;
+
+-- -----------------------------------------------------------------------------
+-- item_comments  (replies on list items)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.item_comments (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id     UUID REFERENCES public.list_items(id) ON DELETE CASCADE NOT NULL,
+  author_id   UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  body        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS item_comments_item_id_idx ON public.item_comments(item_id);
+
+-- -----------------------------------------------------------------------------
+-- Storage bucket for shared list images (private; signed URLs via backend)
+-- Run once in Supabase Dashboard if INSERT fails (Storage → New bucket → list-media).
+-- -----------------------------------------------------------------------------
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('list-media', 'list-media', false)
+ON CONFLICT (id) DO NOTHING;
 
 -- -----------------------------------------------------------------------------
 -- events
@@ -166,7 +192,7 @@ $$;
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['profiles','invites','lists','list_items','events','thoughts','journal_entries','routines','routine_checks','quotes','push_tokens']
+  FOREACH t IN ARRAY ARRAY['profiles','invites','lists','list_items','item_comments','events','thoughts','journal_entries','routines','routine_checks','quotes','push_tokens']
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
   END LOOP;
@@ -198,6 +224,28 @@ CREATE POLICY items_via_list ON public.list_items FOR ALL USING (
     l.owner_id = auth.uid()
     OR auth.uid() = ANY(l.shared_with)
   ))
+);
+
+DROP POLICY IF EXISTS item_comments_via_item ON public.item_comments;
+CREATE POLICY item_comments_via_item ON public.item_comments FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.list_items i
+    JOIN public.lists l ON l.id = i.list_id
+    WHERE i.id = item_id AND (
+      l.owner_id = auth.uid()
+      OR auth.uid() = ANY(l.shared_with)
+    )
+  )
+) WITH CHECK (
+  author_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.list_items i
+    JOIN public.lists l ON l.id = i.list_id
+    WHERE i.id = item_id AND (
+      l.owner_id = auth.uid()
+      OR auth.uid() = ANY(l.shared_with)
+    )
+  )
 );
 
 -- events: owner or (partner of owner AND shared=true)

@@ -14,37 +14,37 @@ import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { api } from "@/src/api";
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { DocumentScanButton } from "@/src/components/DocumentScanButton";
+import { NaturalLanguageListButton } from "@/src/components/NaturalLanguageListButton";
+import { BUILT_IN_TYPES, listTypeIcon, listTypeLabel, type ListType } from "@/src/utils/listTypes";
 
-type ListType = "todo" | "grocery" | "chores";
 type TandemList = {
   id: string;
   name: string;
   type: ListType;
+  custom_label?: string | null;
   item_count: number;
   done_count: number;
   shared_with: string[];
+  owner_id: string;
 };
 
-const FILTERS: { key: ListType | "all"; label: string }[] = [
+type FilterKey = ListType | "all" | `custom:${string}`;
+
+const BASE_FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "All" },
   { key: "todo", label: "To-do" },
   { key: "grocery", label: "Grocery" },
   { key: "chores", label: "Chores" },
 ];
 
-const TYPE_META: Record<ListType, { label: string; icon: any }> = {
-  todo: { label: "To-do", icon: "check-square" },
-  grocery: { label: "Grocery", icon: "shopping-bag" },
-  chores: { label: "Chores", icon: "home" },
-};
-
 export default function ListsHub() {
   const router = useRouter();
   const [lists, setLists] = useState<TandemList[]>([]);
-  const [filter, setFilter] = useState<ListType | "all">("all");
+  const [filter, setFilter] = useState<FilterKey>("all");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<ListType>("todo");
+  const [customLabel, setCustomLabel] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -55,15 +55,33 @@ export default function ListsHub() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const filtered = filter === "all" ? lists : lists.filter((l) => l.type === filter);
+  const customLabels = [...new Set(
+    lists.filter((l) => l.type === "custom" && l.custom_label).map((l) => l.custom_label!)
+  )].sort((a, b) => a.localeCompare(b));
+
+  const FILTERS: { key: FilterKey; label: string }[] = [
+    ...BASE_FILTERS,
+    ...customLabels.map((label) => ({ key: (`custom:${label}`) as FilterKey, label })),
+  ];
+
+  const filtered = filter === "all"
+    ? lists
+    : filter.startsWith("custom:")
+    ? lists.filter((l) => l.type === "custom" && l.custom_label === filter.slice(7))
+    : lists.filter((l) => l.type === filter);
 
   const onCreate = async () => {
     if (!newName.trim()) return;
+    if (newType === "custom" && !customLabel.trim()) return;
     try {
-      const res = await api.post("/lists", { name: newName.trim(), type: newType });
+      const body: Record<string, string | boolean> = { name: newName.trim(), type: newType };
+      if (newType === "custom") body.custom_label = customLabel.trim();
+      const res = await api.post("/lists", body);
       setLists((prev) => [res.data, ...prev]);
       setCreating(false);
       setNewName("");
+      setCustomLabel("");
+      setNewType("todo");
       router.push(`/list/${res.data.id}`);
     } catch {/* ignore */}
   };
@@ -77,6 +95,7 @@ export default function ListsHub() {
             <Text style={styles.subhead}>Everything you're keeping together.</Text>
           </View>
           <View style={styles.headerActions}>
+            <NaturalLanguageListButton onComplete={load} compact />
             <DocumentScanButton onComplete={load} compact />
             <Pressable
               testID="new-list-btn"
@@ -118,13 +137,14 @@ export default function ListsHub() {
           <View style={styles.empty}>
             <Feather name="inbox" size={28} color={colors.onSurfaceTertiary} />
             <Text style={styles.emptyTitle}>No lists yet</Text>
-            <Text style={styles.emptyHint}>Tap + to start a to-do, grocery, or chores list.</Text>
+            <Text style={styles.emptyHint}>Tap + to start a list — to-do, grocery, chores, or your own custom label.</Text>
           </View>
         ) : (
           <View style={styles.grid}>
             {filtered.map((lst) => {
-              const meta = TYPE_META[lst.type];
               const pct = lst.item_count > 0 ? lst.done_count / lst.item_count : 0;
+              const typeLabel = listTypeLabel(lst.type, lst.custom_label);
+              const icon = listTypeIcon(lst.type);
               return (
                 <Pressable
                   key={lst.id}
@@ -133,8 +153,8 @@ export default function ListsHub() {
                   style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
                 >
                   <View style={styles.cardHead}>
-                    <Feather name={meta.icon} size={18} color={colors.brand} />
-                    <Text style={styles.cardType}>{meta.label}</Text>
+                    <Feather name={icon} size={18} color={colors.brand} />
+                    <Text style={styles.cardType}>{typeLabel}</Text>
                   </View>
                   <Text style={styles.cardName} numberOfLines={2}>{lst.name}</Text>
                   <View style={styles.cardFoot}>
@@ -170,7 +190,7 @@ export default function ListsHub() {
           autoFocus
         />
         <View style={styles.typeRow}>
-          {(["todo", "grocery", "chores"] as ListType[]).map((t) => {
+          {BUILT_IN_TYPES.map((t) => {
             const active = newType === t;
             return (
               <Pressable
@@ -179,14 +199,32 @@ export default function ListsHub() {
                 onPress={() => setNewType(t)}
                 style={[styles.typePill, active && styles.typePillOn]}
               >
-                <Feather name={TYPE_META[t].icon} size={14} color={active ? "#fff" : colors.onSurface} />
+                <Feather name={listTypeIcon(t)} size={14} color={active ? "#fff" : colors.onSurface} />
                 <Text style={[styles.typePillText, active && { color: "#fff" }]}>
-                  {TYPE_META[t].label}
+                  {listTypeLabel(t)}
                 </Text>
               </Pressable>
             );
           })}
+          <Pressable
+            testID="type-custom"
+            onPress={() => setNewType("custom")}
+            style={[styles.typePill, newType === "custom" && styles.typePillOn]}
+          >
+            <Feather name="folder" size={14} color={newType === "custom" ? "#fff" : colors.onSurface} />
+            <Text style={[styles.typePillText, newType === "custom" && { color: "#fff" }]}>Custom</Text>
+          </Pressable>
         </View>
+        {newType === "custom" && (
+          <TextInput
+            testID="custom-label-input"
+            value={customLabel}
+            onChangeText={setCustomLabel}
+            placeholder="Label e.g. Travel, Books, Ideas"
+            placeholderTextColor={colors.onSurfaceTertiary}
+            style={styles.sheetInput}
+          />
+        )}
         <Pressable testID="new-list-create-btn" onPress={onCreate} style={styles.sheetPrimary}>
           <Text style={styles.sheetPrimaryText}>Create list</Text>
         </Pressable>

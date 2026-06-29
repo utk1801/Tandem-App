@@ -6,16 +6,9 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
-  Platform,
   TextInput,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 import { Feather } from "@expo/vector-icons";
-import {
-  isDocumentScanSupported,
-  parseDocumentImage,
-  type DocumentScanResult,
-} from "tandem-document-scan";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { api } from "@/src/api";
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
@@ -29,6 +22,14 @@ type ReviewItem = {
   selected: boolean;
 };
 
+type ParseResult = {
+  list_name?: string | null;
+  type: ListType;
+  custom_label?: string | null;
+  items: { text: string; qty?: string | null }[];
+  used_ai?: boolean;
+};
+
 type Props = {
   listId?: string;
   listType?: ListType;
@@ -36,75 +37,64 @@ type Props = {
   compact?: boolean;
 };
 
-function inferListType(raw: string | null | undefined): ListType {
-  if (raw === "grocery" || raw === "chores") return raw;
-  return "todo";
-}
-
-export function DocumentScanButton({ listId, listType, onComplete, compact }: Props) {
+export function NaturalLanguageListButton({ listId, listType, onComplete, compact }: Props) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [inputOpen, setInputOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [scanResult, setScanResult] = useState<DocumentScanResult | null>(null);
+  const [inputText, setInputText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [usedAI, setUsedAI] = useState(false);
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [listName, setListName] = useState("");
   const [newListType, setNewListType] = useState<ListType>(listType || "todo");
   const [customLabel, setCustomLabel] = useState("");
-  const [usedAI, setUsedAI] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const onPress = useCallback(async () => {
-    if (Platform.OS !== "ios") {
-      Alert.alert("iOS only", "Document scanning is available on iOS devices.");
+  const reset = () => {
+    setInputText("");
+    setItems([]);
+    setListName("");
+    setCustomLabel("");
+    setNewListType(listType || "todo");
+    setUsedAI(false);
+  };
+
+  const parse = async () => {
+    const text = inputText.trim();
+    if (!text) {
+      Alert.alert("Say something", "Describe what you want on the list.");
       return;
     }
-    if (!isDocumentScanSupported()) {
-      Alert.alert(
-        "Development build required",
-        "Document scanning uses Apple Vision and requires a native iOS build (expo run:ios), not Expo Go.",
-      );
-      return;
-    }
-
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Camera access", "Allow camera access to scan documents.");
-      return;
-    }
-
-    const photo = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-    });
-    if (photo.canceled || !photo.assets[0]?.uri) return;
-
-    setBusy(true);
+    setParsing(true);
     try {
-      const result = await parseDocumentImage(photo.assets[0].uri);
-      if (!result.items.length) {
-        Alert.alert("No items found", "Try a clearer photo with readable text.");
+      const body: Record<string, string> = { text };
+      if (listId) body.list_id = listId;
+      const res = await api.post("/lists/parse-natural-language", body);
+      const data = res.data as ParseResult;
+      if (!data.items?.length) {
+        Alert.alert("No items found", "Try being more specific, e.g. \"milk, eggs, call plumber\".");
         return;
       }
-      setScanResult(result);
-      setUsedAI(result.usedAI);
-      setListName(result.listName?.trim() || (listId ? "" : "Scanned list"));
-      setNewListType(listId ? (listType || "todo") : inferListType(result.listType));
-      setCustomLabel("");
+      setUsedAI(!!data.used_ai);
+      setListName(data.list_name?.trim() || (listId ? "" : "Quick list"));
+      setNewListType(listId ? (listType || "todo") : (data.type || "todo"));
+      setCustomLabel(data.custom_label?.trim() || "");
       setItems(
-        result.items.map((item, idx) => ({
+        data.items.map((item, idx) => ({
           id: String(idx),
           text: item.text,
           qty: item.qty || "",
           selected: true,
         })),
       );
+      setInputOpen(false);
       setReviewOpen(true);
     } catch (e: any) {
-      Alert.alert("Scan failed", e?.message || "Could not read the document.");
+      Alert.alert("Parse failed", e?.message || "Could not understand that text.");
     } finally {
-      setBusy(false);
+      setParsing(false);
     }
-  }, [listId, listType]);
+  };
 
   const toggleItem = (id: string) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, selected: !i.selected } : i)));
@@ -123,7 +113,7 @@ export function DocumentScanButton({ listId, listType, onComplete, compact }: Pr
       let targetType = listType || newListType;
 
       if (!targetListId) {
-        const name = listName.trim() || "Scanned list";
+        const name = listName.trim() || "Quick list";
         if (newListType === "custom" && !customLabel.trim() && !name) {
           Alert.alert("Custom label required", "Enter a label for your custom list.");
           setSaving(false);
@@ -145,41 +135,68 @@ export function DocumentScanButton({ listId, listType, onComplete, compact }: Pr
       }
 
       setReviewOpen(false);
-      setScanResult(null);
+      reset();
       onComplete?.();
 
       if (!listId && targetListId) {
         router.push(`/list/${targetListId}`);
       }
     } catch (e: any) {
-      Alert.alert("Save failed", e?.message || "Could not save scanned items.");
+      Alert.alert("Save failed", e?.message || "Could not save items.");
     } finally {
       setSaving(false);
     }
   };
 
+  const openInput = useCallback(() => {
+    reset();
+    setInputOpen(true);
+  }, [listType]);
+
   return (
     <>
       <Pressable
-        testID="document-scan-btn"
-        onPress={onPress}
-        disabled={busy}
-        style={[styles.btn, compact && styles.btnCompact, busy && { opacity: 0.6 }]}
+        testID="nl-list-btn"
+        onPress={openInput}
+        style={[styles.btn, compact && styles.btnCompact]}
       >
-        {busy ? (
-          <ActivityIndicator size="small" color={compact ? colors.brand : colors.onBrandPrimary} />
-        ) : (
-          <Feather name="camera" size={compact ? 18 : 20} color={compact ? colors.brand : colors.onBrandPrimary} />
-        )}
-        {!compact && <Text style={styles.btnText}>Scan</Text>}
+        <Feather name="message-square" size={compact ? 18 : 20} color={compact ? colors.brand : colors.onBrandPrimary} />
+        {!compact && <Text style={styles.btnText}>Quick add</Text>}
       </Pressable>
 
-      <SwipeableSheet visible={reviewOpen} onClose={() => setReviewOpen(false)}>
-        <Text style={styles.sheetTitle}>Review scanned items</Text>
+      <SwipeableSheet visible={inputOpen} onClose={() => setInputOpen(false)}>
+        <Text style={styles.sheetTitle}>Describe your list</Text>
         <Text style={styles.sheetSub}>
-          {usedAI
-            ? "Parsed with on-device Apple Intelligence"
-            : "Parsed with Vision OCR (Apple Intelligence unavailable)"}
+          e.g. &quot;milk, eggs, bread for groceries&quot; or &quot;call plumber, fix leaky faucet for weekend chores&quot;
+        </Text>
+        <TextInput
+          testID="nl-list-input"
+          value={inputText}
+          onChangeText={setInputText}
+          placeholder="Type or paste items…"
+          placeholderTextColor={colors.onSurfaceTertiary}
+          style={styles.textArea}
+          multiline
+          autoFocus
+        />
+        <Pressable
+          testID="nl-list-parse-btn"
+          onPress={parse}
+          disabled={parsing}
+          style={[styles.primary, parsing && { opacity: 0.6 }]}
+        >
+          {parsing ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryText}>Parse with AI</Text>
+          )}
+        </Pressable>
+      </SwipeableSheet>
+
+      <SwipeableSheet visible={reviewOpen} onClose={() => setReviewOpen(false)}>
+        <Text style={styles.sheetTitle}>Review items</Text>
+        <Text style={styles.sheetSub}>
+          {usedAI ? "Parsed with AI" : "Parsed with basic rules (AI unavailable)"}
         </Text>
 
         {!listId && (
@@ -214,7 +231,7 @@ export function DocumentScanButton({ listId, listType, onComplete, compact }: Pr
               <TextInput
                 value={customLabel}
                 onChangeText={setCustomLabel}
-                placeholder="Label e.g. Travel, Books, Ideas"
+                placeholder="Label e.g. Travel, Books"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 style={styles.input}
               />
@@ -236,14 +253,8 @@ export function DocumentScanButton({ listId, listType, onComplete, compact }: Pr
           ))}
         </View>
 
-        {scanResult?.rawText ? (
-          <Text style={styles.rawHint} numberOfLines={3}>
-            OCR: {scanResult.rawText}
-          </Text>
-        ) : null}
-
         <Pressable
-          testID="document-scan-save-btn"
+          testID="nl-list-save-btn"
           onPress={save}
           disabled={saving}
           style={[styles.primary, saving && { opacity: 0.6 }]}
@@ -284,6 +295,17 @@ const styles = StyleSheet.create({
   btnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onBrandPrimary },
   sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
   sheetSub: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
+  textArea: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    minHeight: 120,
+    textAlignVertical: "top",
+  },
   input: {
     fontFamily: fonts.body,
     fontSize: fontSize.lg,
@@ -302,7 +324,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   typePillOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  typePillText: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, textTransform: "capitalize" },
+  typePillText: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
   typePillTextOn: { color: "#fff" },
   itemsBlock: { gap: spacing.sm },
   itemRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: spacing.sm },
@@ -319,7 +341,6 @@ const styles = StyleSheet.create({
   checkboxOn: { backgroundColor: colors.brand, borderColor: colors.brand },
   itemText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
   itemQty: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  rawHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
   primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
   primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
 });

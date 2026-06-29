@@ -357,6 +357,12 @@ class RegisterPushReq(BaseModel):
     device_token: str
 
 
+class DateNightPlanReq(BaseModel):
+    budget: str
+    vibe: str
+    location: str
+
+
 class CommentCreate(BaseModel):
     body: str
 
@@ -1255,6 +1261,72 @@ async def get_today_quote(user: dict = Depends(current_user)):
     row = sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data[0]
     row["first_name"] = first_name
     return row
+
+
+# ======================= DATE NIGHT PLANNER =======================
+@api_router.post("/date-night/plan")
+async def plan_date_night(req: DateNightPlanReq, user: dict = Depends(current_user)):
+    first_name = _first_name(user)
+    prompt = (
+        f"Budget: {req.budget}\n"
+        f"Vibe: {req.vibe}\n"
+        f"Location/area: {req.location}"
+    )
+    fallback = [
+        {
+            "title": "Cozy Home Cinema",
+            "description": "Pick a film you've both been putting off, dim the lights, make popcorn from scratch.",
+            "checklist": ["Pick the film together", "Make popcorn", "Dim the lights", "Phones on silent"],
+        },
+        {
+            "title": "Neighbourhood Food Walk",
+            "description": "Pick three local spots and order one thing at each — appetiser, main, dessert.",
+            "checklist": ["Pick three spots", "Walk there", "Order one dish each stop", "Share everything"],
+        },
+        {
+            "title": "Sunset Picnic",
+            "description": "Pack a simple spread and find your nearest outdoor spot before golden hour.",
+            "checklist": ["Pack blanket", "Prepare snacks", "Find a good spot", "Leave phones in pockets"],
+        },
+    ]
+    try:
+        ac = anthropic.AsyncAnthropicBedrock(
+            aws_access_key=AWS_ACCESS_KEY_ID,
+            aws_secret_key=AWS_SECRET_ACCESS_KEY,
+            aws_region=AWS_REGION,
+        )
+        response = await ac.messages.create(
+            model="arn:aws:bedrock:us-west-2:598451516178:inference-profile/global.anthropic.claude-sonnet-4-6",
+            max_tokens=1024,
+            system=(
+                f"You are a warm, creative date planner for {first_name} and their partner. "
+                "Given budget, vibe, and location, generate exactly 3 date night ideas. "
+                "Each idea must be specific, actionable, and feel personal — not generic. "
+                "Return ONLY valid JSON (no markdown) with this exact shape:\n"
+                '[{"title":"string","description":"string (1-2 sentences, warm tone)","checklist":["string","string","string","string"]}]\n'
+                "Rules: checklist has 3-5 concrete action items; ideas vary in energy level (one chill, one active, one romantic); "
+                "respect the budget constraint strictly; keep location-specific where possible."
+            ),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip() if response.content else ""
+        parsed = _extract_json_array(raw)
+        if parsed and len(parsed) >= 2:
+            return {"ideas": parsed[:3]}
+    except Exception as e:
+        logger.warning(f"Date night plan AI failed: {e}")
+    return {"ideas": fallback}
+
+
+def _extract_json_array(text: str) -> Optional[list]:
+    try:
+        s = text.find("[")
+        e = text.rfind("]")
+        if s == -1 or e == -1:
+            return None
+        return json.loads(text[s:e+1])
+    except Exception:
+        return None
 
 
 @api_router.get("/")

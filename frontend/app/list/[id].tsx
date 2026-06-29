@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Image,
-  Linking,
+  Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
@@ -19,7 +19,8 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
-import { api } from "@/src/api";
+import { api, uploadImage } from "@/src/api";
+import { useAuth } from "@/src/contexts/AuthContext";
 import { ReminderPicker, type Reminder, formatDue, dueDate } from "@/src/components/ReminderPicker";
 import { RecurrencePicker, defaultRecurrence } from "@/src/components/RecurrencePicker";
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
@@ -28,8 +29,10 @@ import { SwipeableRow } from "@/src/components/SwipeableRow";
 import { ItemKindPicker, type ItemKind } from "@/src/components/ItemKindPicker";
 import { confirmDelete } from "@/src/utils/confirmDelete";
 import { DocumentScanButton } from "@/src/components/DocumentScanButton";
+import { NaturalLanguageListButton } from "@/src/components/NaturalLanguageListButton";
 import type { Recurrence } from "@/src/types/calendar";
 import { formatRecurrence } from "@/src/utils/calendar";
+import { listTypeLabel, type ListType } from "@/src/utils/listTypes";
 
 type Item = {
   id: string; text: string; qty?: string | null; done: boolean;
@@ -39,19 +42,23 @@ type Item = {
   kind?: ItemKind | null; url?: string | null; media_uri?: string | null;
 };
 type Detail = {
-  id: string; name: string; type: "todo" | "grocery" | "chores";
+  id: string; name: string; type: ListType;
+  custom_label?: string | null;
   owner_id: string; shared_with: string[]; items: Item[];
 };
 
 export default function ListDetail() {
   const { id, editItem } = useLocalSearchParams<{ id: string; editItem?: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const [data, setData] = useState<Detail | null>(null);
   const [text, setText] = useState("");
   const [qty, setQty] = useState("");
   const [kind, setKind] = useState<ItemKind>("text");
   const [url, setUrl] = useState("");
   const [mediaUri, setMediaUri] = useState("");
+  const [mediaPreview, setMediaPreview] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reminderVisible, setReminderVisible] = useState(false);
   const [reminder, setReminder] = useState<Reminder>({ dueAt: null, remindMinutesBefore: null });
@@ -60,6 +67,9 @@ export default function ListDetail() {
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [renameVisible, setRenameVisible] = useState(false);
   const [listName, setListName] = useState("");
+  const [shareList, setShareList] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const editOpenedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -67,15 +77,21 @@ export default function ListDetail() {
       const res = await api.get(`/lists/${id}`);
       setData(res.data);
       setListName(res.data.name);
-      if (editItem && res.data.items) {
-        const target = res.data.items.find((i: Item) => i.id === editItem);
-        if (target) openEdit(target);
-      }
+      setShareList((res.data.shared_with || []).length > 0);
     } catch {/* ignore */}
     finally { setLoading(false); }
-  }, [id, editItem]);
+  }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  useEffect(() => {
+    if (!editItem || !data?.items || editOpenedRef.current) return;
+    const target = data.items.find((i) => i.id === editItem);
+    if (target) {
+      editOpenedRef.current = true;
+      openEdit(target);
+    }
+  }, [editItem, data]);
 
   const scheduleForItem = async (item: Item) => {
     if (!item.due_at || item.remind_minutes_before === null || item.remind_minutes_before === undefined) {
@@ -100,13 +116,13 @@ export default function ListDetail() {
   };
 
   const resetComposer = () => {
-    setText(""); setQty(""); setKind("text"); setUrl(""); setMediaUri("");
+    setText(""); setQty(""); setKind("text"); setUrl(""); setMediaUri(""); setMediaPreview("");
     setReminder({ dueAt: null, remindMinutesBefore: null });
     setRecurrence(defaultRecurrence());
   };
 
   const addItem = async () => {
-    if (!text.trim() || !data) return;
+    if (!text.trim() || !data || uploadingImage) return;
     if ((kind === "link" || kind === "video") && !url.trim()) return;
     if (kind === "image" && !mediaUri) return;
     const res = await api.post(`/lists/${id}/items`, buildItemBody());
@@ -120,7 +136,17 @@ export default function ListDetail() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return;
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-    if (!result.canceled && result.assets[0]?.uri) setMediaUri(result.assets[0].uri);
+    if (result.canceled || !result.assets[0]?.uri) return;
+    setUploadingImage(true);
+    try {
+      const uploaded = await uploadImage(result.assets[0].uri);
+      setMediaUri(uploaded.path);
+      setMediaPreview(uploaded.url);
+    } catch {
+      /* ignore */
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const openEdit = (item: Item) => {
@@ -129,27 +155,58 @@ export default function ListDetail() {
     setQty(item.qty || "");
     setKind((item.kind as ItemKind) || "text");
     setUrl(item.url || "");
-    setMediaUri(item.media_uri || "");
+    if (item.kind === "image" && item.media_uri) {
+      if (item.media_uri.startsWith("http")) {
+        setMediaPreview(item.media_uri);
+        setMediaUri("");
+      } else {
+        setMediaUri(item.media_uri);
+        setMediaPreview("");
+      }
+    } else {
+      setMediaUri("");
+      setMediaPreview("");
+    }
     setReminder({ dueAt: item.due_at ?? null, remindMinutesBefore: item.remind_minutes_before ?? null });
     setRecurrence(item.recurrence || defaultRecurrence());
     setEditVisible(true);
   };
 
   const saveEdit = async () => {
-    if (!editingItem || !text.trim()) return;
+    if (!editingItem || !text.trim() || uploadingImage) return;
     const body: any = { text: text.trim(), kind };
     if (data?.type === "grocery") body.qty = qty.trim() || null;
     body.due_at = reminder.dueAt;
     body.remind_minutes_before = reminder.remindMinutesBefore;
     body.recurrence = recurrence.type === "none" ? null : recurrence;
     body.url = (kind === "link" || kind === "video") ? url.trim() : null;
-    body.media_uri = kind === "image" ? mediaUri : null;
+    if (kind === "image") {
+      if (mediaUri) body.media_uri = mediaUri;
+      else if (!mediaPreview) body.media_uri = null;
+    } else {
+      body.media_uri = null;
+    }
     const res = await api.patch(`/items/${editingItem.id}`, body);
     setData((d) => d ? { ...d, items: d.items.map((i) => i.id === editingItem.id ? res.data : i) } : d);
     await scheduleForItem(res.data);
     setEditVisible(false);
     setEditingItem(null);
     resetComposer();
+  };
+
+  const toggleShare = async (next: boolean) => {
+    if (!id || !data || data.owner_id !== user?.id) return;
+    setSharing(true);
+    setShareList(next);
+    try {
+      const res = await api.patch(`/lists/${id}`, { share_with_partner: next });
+      setData((d) => d ? { ...d, shared_with: res.data.shared_with || [] } : d);
+      setShareList((res.data.shared_with || []).length > 0);
+    } catch {
+      setShareList((data.shared_with || []).length > 0);
+    } finally {
+      setSharing(false);
+    }
   };
 
   const toggle = async (item: Item) => {
@@ -190,6 +247,10 @@ export default function ListDetail() {
   const isGrocery = data.type === "grocery";
   const dueLabel = formatDue(reminder.dueAt);
   const showUrlField = kind === "link" || kind === "video";
+  const isOwner = data.owner_id === user?.id;
+  const hasPartner = !!user?.partner_id;
+  const typeLabel = listTypeLabel(data.type, data.custom_label);
+  const imagePreview = mediaPreview || (mediaUri.startsWith("http") ? mediaUri : "");
 
   const renderComposerFields = () => (
     <>
@@ -199,8 +260,10 @@ export default function ListDetail() {
       )}
       {kind === "image" && (
         <View style={styles.imageRow}>
-          {mediaUri ? <Image source={{ uri: mediaUri }} style={styles.thumb} /> : null}
-          <Pressable onPress={pickImage} style={styles.secondaryBtn}><Text style={styles.secondaryBtnText}>Pick image</Text></Pressable>
+          {imagePreview ? <Image source={{ uri: imagePreview }} style={styles.thumb} /> : null}
+          <Pressable onPress={pickImage} style={styles.secondaryBtn} disabled={uploadingImage}>
+            {uploadingImage ? <ActivityIndicator color={colors.brand} size="small" /> : <Text style={styles.secondaryBtnText}>Pick image</Text>}
+          </Pressable>
         </View>
       )}
       <ReminderPicker value={reminder} onChange={setReminder} />
@@ -214,19 +277,37 @@ export default function ListDetail() {
         <Pressable onPress={() => router.back()} hitSlop={10} testID="back-btn">
           <Feather name="arrow-left" size={22} color={colors.onSurface} />
         </Pressable>
-        <Pressable style={{ flex: 1 }} onPress={() => setRenameVisible(true)}>
-          <Text style={styles.kicker}>{data.type === "todo" ? "To-do" : data.type === "grocery" ? "Grocery" : "Chores"}</Text>
+        <Pressable style={{ flex: 1 }} onPress={() => isOwner && setRenameVisible(true)}>
+          <Text style={styles.kicker}>{typeLabel}</Text>
           <Text style={styles.title} numberOfLines={2}>{data.name}</Text>
         </Pressable>
-        <DocumentScanButton listId={id} listType={data.type} onComplete={load} compact />
-        <Pressable testID="delete-list-btn" onPress={deleteList} hitSlop={10}>
-          <Feather name="trash-2" size={20} color={colors.onSurfaceTertiary} />
-        </Pressable>
+        <NaturalLanguageListButton listId={id} listType={data.type} onComplete={load} compact />
+        <DocumentScanButton listId={id} listType={data.type === "custom" ? "todo" : data.type} onComplete={load} compact />
+        {isOwner && (
+          <Pressable testID="delete-list-btn" onPress={deleteList} hitSlop={10}>
+            <Feather name="trash-2" size={20} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        )}
       </SafeAreaView>
+
+      {isOwner && hasPartner && (
+        <View style={styles.shareRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.shareLabel}>Share with partner</Text>
+            <Text style={styles.shareHint}>{shareList ? "Your partner can see this entire list" : "Only you can see this list"}</Text>
+          </View>
+          <Switch
+            value={shareList}
+            onValueChange={toggleShare}
+            disabled={sharing}
+            trackColor={{ false: colors.border, true: colors.brand }}
+          />
+        </View>
+      )}
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}>
         <FlatList
-          data={data.items}
+          data={[...data.items].sort((a, b) => Number(a.done) - Number(b.done))}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
@@ -282,7 +363,10 @@ export default function ListDetail() {
             <TextInput value={url} onChangeText={setUrl} placeholder={kind === "video" ? "Paste video URL" : "Paste link URL"} placeholderTextColor={colors.onSurfaceTertiary} style={styles.urlInput} autoCapitalize="none" />
           )}
           {kind === "image" && (
-            <Pressable onPress={pickImage} style={styles.pickBtn}><Feather name="image" size={16} color={colors.brand} /><Text style={styles.pickBtnText}>{mediaUri ? "Change image" : "Attach image"}</Text></Pressable>
+            <Pressable onPress={pickImage} style={styles.pickBtn} disabled={uploadingImage}>
+              {uploadingImage ? <ActivityIndicator color={colors.brand} size="small" /> : <Feather name="image" size={16} color={colors.brand} />}
+              <Text style={styles.pickBtnText}>{uploadingImage ? "Uploading…" : mediaUri ? "Change image" : "Attach image"}</Text>
+            </Pressable>
           )}
           {dueLabel && (
             <View style={styles.pendingDue}>
@@ -297,7 +381,7 @@ export default function ListDetail() {
             </Pressable>
             <TextInput testID="new-item-input" value={text} onChangeText={setText} placeholder={isGrocery ? "Add an item…" : "Add a task or memo…"} placeholderTextColor={colors.onSurfaceTertiary} style={styles.composerInput} onSubmitEditing={addItem} returnKeyType="send" />
             {isGrocery && <TextInput testID="new-item-qty-input" value={qty} onChangeText={setQty} placeholder="qty" placeholderTextColor={colors.onSurfaceTertiary} style={styles.qtyInput} onSubmitEditing={addItem} returnKeyType="send" />}
-            <Pressable testID="add-item-btn" onPress={addItem} style={styles.addBtn}><Feather name="arrow-up" size={20} color="#fff" /></Pressable>
+            <Pressable testID="add-item-btn" onPress={addItem} style={styles.addBtn} disabled={uploadingImage}><Feather name="arrow-up" size={20} color="#fff" /></Pressable>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -316,7 +400,7 @@ export default function ListDetail() {
         <TextInput value={text} onChangeText={setText} style={styles.sheetInput} placeholder="Title" placeholderTextColor={colors.onSurfaceTertiary} />
         {isGrocery && <TextInput value={qty} onChangeText={setQty} style={styles.sheetInput} placeholder="Qty" placeholderTextColor={colors.onSurfaceTertiary} />}
         {renderComposerFields()}
-        <Pressable onPress={saveEdit} style={styles.sheetPrimary}><Text style={styles.sheetPrimaryText}>Save changes</Text></Pressable>
+        <Pressable onPress={saveEdit} style={styles.sheetPrimary} disabled={uploadingImage}><Text style={styles.sheetPrimaryText}>Save changes</Text></Pressable>
       </SwipeableSheet>
 
       <SwipeableSheet visible={renameVisible} onClose={() => setRenameVisible(false)} scrollable={false}>
@@ -335,6 +419,9 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center", backgroundColor: colors.surface },
   kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.8, textTransform: "uppercase" },
   title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginTop: 2 },
+  shareRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceSecondary },
+  shareLabel: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurface },
+  shareHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   list: { padding: spacing.xl, gap: spacing.sm },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
   checkboxWrap: { padding: 2 },
