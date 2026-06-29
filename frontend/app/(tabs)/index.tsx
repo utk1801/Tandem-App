@@ -249,6 +249,24 @@ export default function Today() {
           </View>
         )}
 
+        {/* Date night planner */}
+        <View style={styles.section}>
+          <Pressable
+            testID="date-night-btn"
+            onPress={() => router.push("/date-night")}
+            style={styles.dateNightCard}
+          >
+            <View style={styles.dateNightLeft}>
+              <Feather name="heart" size={20} color={colors.brand} />
+              <View>
+                <Text style={styles.dateNightTitle}>Plan a date night</Text>
+                <Text style={styles.dateNightHint}>3 ideas, tailored to you.</Text>
+              </View>
+            </View>
+            <Feather name="arrow-right" size={18} color={colors.brand} />
+          </Pressable>
+        </View>
+
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
     </View>
@@ -348,4 +366,18 @@ const styles = StyleSheet.create({
   upcomingTime: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   upcomingTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
   upcomingMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  dateNightCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.brandTertiary,
+    borderRadius: radius.lg,
+    backgroundColor: colors.brandTertiary,
+  },
+  dateNightLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  dateNightTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  dateNightHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, marginTop: 2 },
 });
