@@ -125,7 +125,17 @@ export default function Today() {
             style={StyleSheet.absoluteFill}
           />
           <SafeAreaView edges={["top"]} style={styles.heroSafe}>
-            <Text style={styles.greeting}>{greeting}, {displayName}.</Text>
+            <View style={styles.heroTopRow}>
+              <Text style={styles.greeting}>{greeting}, {displayName}.</Text>
+              <Pressable
+                testID="reminders-btn"
+                onPress={() => router.push("/reminders")}
+                hitSlop={10}
+                style={styles.bellBtn}
+              >
+                <Feather name="bell" size={20} color="rgba(253,252,249,0.85)" />
+              </Pressable>
+            </View>
           </SafeAreaView>
           <View style={styles.heroQuote}>
             {loading && !quote ? (
@@ -255,6 +265,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   heroSafe: { paddingHorizontal: spacing.xl, paddingTop: spacing.md },
+  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  bellBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   greeting: { fontFamily: fonts.body, fontSize: fontSize.base, color: "rgba(253,252,249,0.85)" },
   heroQuote: { padding: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
   quoteText: {

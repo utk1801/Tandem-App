@@ -14,7 +14,6 @@
     },
     "ios": {
       "bundleIdentifier": "com.app.tandem.couples",
-      "googleServicesFile": "./GoogleService-Info.plist",
       "podfileProperties": {
         "ios.useModularHeaders": "true"
       },
@@ -56,8 +55,14 @@
       ],
       "expo-font",
       "@react-native-community/datetimepicker",
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#A64D3C",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

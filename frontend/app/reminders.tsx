@@ -1,0 +1,472 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  TextInput,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { Feather } from "@expo/vector-icons";
+import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { ReminderPicker, type Reminder, dueDate, formatDue } from "@/src/components/ReminderPicker";
+import { scheduleReminder, cancelReminder, ensurePermissions } from "@/src/notifications";
+import { SwipeableSheet } from "@/src/components/SwipeableSheet";
+import { SwipeableRow } from "@/src/components/SwipeableRow";
+import { confirmDelete } from "@/src/utils/confirmDelete";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const STORE_KEY = "tandem_reminders_v1";
+
+type ReminderItem = {
+  id: string;
+  title: string;
+  notes: string;
+  dueAt: string | null;
+  remindMinutesBefore: number | null;
+};
+
+function genId() {
+  return `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function loadReminders(): Promise<ReminderItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(STORE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveReminders(items: ReminderItem[]): Promise<void> {
+  await AsyncStorage.setItem(STORE_KEY, JSON.stringify(items));
+}
+
+const REMIND_LABELS: Record<number, string> = {
+  0: "At time",
+  5: "5 min before",
+  30: "30 min before",
+  60: "1 hr before",
+  1440: "1 day before",
+  10080: "1 week before",
+};
+
+function remindLabel(minutes: number | null): string | null {
+  if (minutes == null) return null;
+  return REMIND_LABELS[minutes] ?? `${minutes} min before`;
+}
+
+export default function RemindersScreen() {
+  const router = useRouter();
+  const [items, setItems] = useState<ReminderItem[]>([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
+  const [reminder, setReminder] = useState<Reminder>({ dueAt: null, remindMinutesBefore: null });
+
+  useEffect(() => {
+    loadReminders().then(setItems);
+  }, []);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setTitle("");
+    setNotes("");
+    setReminder({ dueAt: null, remindMinutesBefore: null });
+    setSheetOpen(true);
+  };
+
+  const openEdit = useCallback((item: ReminderItem) => {
+    setEditingId(item.id);
+    setTitle(item.title);
+    setNotes(item.notes);
+    setReminder({ dueAt: item.dueAt, remindMinutesBefore: item.remindMinutesBefore });
+    setSheetOpen(true);
+  }, []);
+
+  const closeSheet = () => {
+    setSheetOpen(false);
+    setEditingId(null);
+  };
+
+  const submit = async () => {
+    if (!title.trim()) return;
+    await ensurePermissions();
+
+    if (editingId) {
+      const updated: ReminderItem = {
+        id: editingId,
+        title: title.trim(),
+        notes: notes.trim(),
+        dueAt: reminder.dueAt,
+        remindMinutesBefore: reminder.remindMinutesBefore,
+      };
+      await cancelReminder(`reminder:${editingId}`);
+      const fireAt = _fireDate(updated);
+      if (fireAt) {
+        await scheduleReminder(
+          `reminder:${editingId}`,
+          updated.title,
+          updated.notes || "Reminder",
+          fireAt,
+        );
+      }
+      const next = items.map((x) => (x.id === editingId ? updated : x));
+      setItems(next);
+      await saveReminders(next);
+    } else {
+      const id = genId();
+      const item: ReminderItem = {
+        id,
+        title: title.trim(),
+        notes: notes.trim(),
+        dueAt: reminder.dueAt,
+        remindMinutesBefore: reminder.remindMinutesBefore,
+      };
+      const fireAt = _fireDate(item);
+      if (fireAt) {
+        await scheduleReminder(
+          `reminder:${id}`,
+          item.title,
+          item.notes || "Reminder",
+          fireAt,
+        );
+      }
+      const next = [...items, item];
+      setItems(next);
+      await saveReminders(next);
+    }
+    closeSheet();
+  };
+
+  const remove = useCallback((item: ReminderItem) => {
+    confirmDelete("Delete reminder?", "This cannot be undone.", async () => {
+      await cancelReminder(`reminder:${item.id}`);
+      const next = items.filter((x) => x.id !== item.id);
+      setItems(next);
+      await saveReminders(next);
+    });
+  }, [items]);
+
+  const now = new Date();
+  const upcoming = items
+    .filter((x) => {
+      const f = _fireDate(x);
+      return f && f > now;
+    })
+    .sort((a, b) => {
+      const fa = _fireDate(a)!.getTime();
+      const fb = _fireDate(b)!.getTime();
+      return fa - fb;
+    });
+  const past = items.filter((x) => {
+    const f = _fireDate(x);
+    return !f || f <= now;
+  });
+
+  return (
+    <View style={styles.root}>
+      <SafeAreaView edges={["top"]} style={styles.header}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backBtn}>
+            <Feather name="arrow-left" size={22} color={colors.onSurface} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.heading}>Reminders</Text>
+            <Text style={styles.subhead}>Never miss a moment.</Text>
+          </View>
+          <Pressable onPress={openCreate} style={styles.addBtn} testID="new-reminder-btn">
+            <Feather name="plus" size={20} color={colors.onBrandPrimary} />
+          </Pressable>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {items.length === 0 ? (
+          <View style={styles.empty}>
+            <Feather name="bell" size={32} color={colors.onSurfaceTertiary} />
+            <Text style={styles.emptyTitle}>No reminders yet</Text>
+            <Text style={styles.emptyHint}>
+              Tap + to add one. Notifications fire on your device — no internet needed.
+            </Text>
+            <Pressable onPress={openCreate} style={styles.emptyCta}>
+              <Text style={styles.emptyCtaText}>Add reminder</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            {upcoming.length > 0 && (
+              <View style={styles.group}>
+                <Text style={styles.groupLabel}>Upcoming</Text>
+                <View style={styles.groupList}>
+                  {upcoming.map((item) => (
+                    <ReminderCard
+                      key={item.id}
+                      item={item}
+                      onEdit={openEdit}
+                      onDelete={remove}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+            {past.length > 0 && (
+              <View style={styles.group}>
+                <Text style={styles.groupLabel}>No date set or past</Text>
+                <View style={styles.groupList}>
+                  {past.map((item) => (
+                    <ReminderCard
+                      key={item.id}
+                      item={item}
+                      onEdit={openEdit}
+                      onDelete={remove}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+          </>
+        )}
+        <View style={{ height: spacing.xxxl }} />
+      </ScrollView>
+
+      <SwipeableSheet visible={sheetOpen} onClose={closeSheet}>
+        <Text style={styles.sheetTitle}>{editingId ? "Edit reminder" : "New reminder"}</Text>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="What do you want to remember?"
+          placeholderTextColor={colors.onSurfaceTertiary}
+          style={styles.sheetTitleInput}
+          autoFocus
+          testID="reminder-title-input"
+        />
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Notes (optional)"
+          placeholderTextColor={colors.onSurfaceTertiary}
+          style={[styles.sheetInput, { minHeight: 60 }]}
+          multiline
+          testID="reminder-notes-input"
+        />
+        <ReminderPicker value={reminder} onChange={setReminder} />
+        <Pressable
+          onPress={submit}
+          disabled={!title.trim()}
+          style={[styles.sheetPrimary, !title.trim() && { opacity: 0.4 }]}
+          testID="reminder-save-btn"
+        >
+          <Text style={styles.sheetPrimaryText}>{editingId ? "Save changes" : "Save reminder"}</Text>
+        </Pressable>
+      </SwipeableSheet>
+    </View>
+  );
+}
+
+function _fireDate(item: ReminderItem): Date | null {
+  if (!item.dueAt) return null;
+  const due = dueDate(item.dueAt);
+  if (!due) return null;
+  const mins = item.remindMinutesBefore ?? 0;
+  return new Date(due.getTime() - mins * 60 * 1000);
+}
+
+function ReminderCard({
+  item,
+  onEdit,
+  onDelete,
+}: {
+  item: ReminderItem;
+  onEdit: (item: ReminderItem) => void;
+  onDelete: (item: ReminderItem) => void;
+}) {
+  const fireAt = _fireDate(item);
+  const now = new Date();
+  const isPast = fireAt ? fireAt <= now : false;
+  const rl = remindLabel(item.remindMinutesBefore);
+
+  const card = (
+    <Pressable
+      onPress={() => onEdit(item)}
+      style={[styles.card, isPast && styles.cardPast]}
+      testID={`reminder-${item.id}`}
+    >
+      <View style={styles.cardLeft}>
+        <Feather
+          name="bell"
+          size={16}
+          color={isPast ? colors.onSurfaceTertiary : colors.brand}
+        />
+      </View>
+      <View style={styles.cardBody}>
+        <Text style={[styles.cardTitle, isPast && styles.cardTitlePast]} numberOfLines={2}>
+          {item.title}
+        </Text>
+        {item.notes ? (
+          <Text style={styles.cardNotes} numberOfLines={1}>{item.notes}</Text>
+        ) : null}
+        <View style={styles.cardMeta}>
+          {item.dueAt && (
+            <Text style={[styles.cardMetaText, isPast && styles.cardMetaPast]}>
+              {formatDue(item.dueAt)}
+            </Text>
+          )}
+          {rl && item.dueAt && (
+            <Text style={styles.cardMetaDot}> · </Text>
+          )}
+          {rl && (
+            <Text style={[styles.cardMetaText, isPast && styles.cardMetaPast]}>{rl}</Text>
+          )}
+          {!item.dueAt && (
+            <Text style={styles.cardMetaPast}>No date set</Text>
+          )}
+        </View>
+      </View>
+    </Pressable>
+  );
+
+  return (
+    <SwipeableRow canEdit canDelete onEdit={() => onEdit(item)} onDelete={() => onDelete(item)}>
+      {card}
+    </SwipeableRow>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  header: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  headerCenter: { flex: 1 },
+  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
+  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  addBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scroll: { padding: spacing.xl, gap: spacing.xl },
+  empty: {
+    marginTop: spacing.xxxl,
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyHint: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  emptyCta: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+  },
+  emptyCtaText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: "#fff" },
+  group: { gap: spacing.md },
+  groupLabel: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceSecondary,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  groupList: { gap: spacing.sm },
+  card: {
+    flexDirection: "row",
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "flex-start",
+  },
+  cardPast: { opacity: 0.55 },
+  cardLeft: { paddingTop: 2 },
+  cardBody: { flex: 1, gap: 4 },
+  cardTitle: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    lineHeight: 22,
+  },
+  cardTitlePast: { color: colors.onSurfaceSecondary },
+  cardNotes: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceSecondary,
+    lineHeight: 18,
+  },
+  cardMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
+  cardMetaText: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  cardMetaDot: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  cardMetaPast: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  sheetTitle: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.xxl,
+    color: colors.onSurface,
+  },
+  sheetTitleInput: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.xl,
+    color: colors.onSurface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderStrong,
+    paddingVertical: spacing.sm,
+  },
+  sheetInput: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    textAlignVertical: "top",
+  },
+  sheetPrimary: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: spacing.sm,
+  },
+  sheetPrimaryText: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: fontSize.lg,
+    color: "#fff",
+  },
+});
