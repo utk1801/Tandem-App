@@ -6,12 +6,16 @@ import {
   ScrollView,
   Pressable,
   TextInput,
+  Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useAuth } from "@/src/contexts/AuthContext";
 import { Feather } from "@expo/vector-icons";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { ReminderPicker, type Reminder, dueDate, formatDue } from "@/src/components/ReminderPicker";
+import { RecurrencePicker, defaultRecurrence } from "@/src/components/RecurrencePicker";
+import type { Recurrence } from "@/src/types/calendar";
 import { scheduleReminder, cancelReminder, ensurePermissions } from "@/src/notifications";
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { SwipeableRow } from "@/src/components/SwipeableRow";
@@ -26,6 +30,8 @@ type ReminderItem = {
   notes: string;
   dueAt: string | null;
   remindMinutesBefore: number | null;
+  recurrence: Recurrence;
+  sharedWithPartner?: boolean;
 };
 
 function genId() {
@@ -61,12 +67,15 @@ function remindLabel(minutes: number | null): string | null {
 
 export default function RemindersScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [items, setItems] = useState<ReminderItem[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [reminder, setReminder] = useState<Reminder>({ dueAt: null, remindMinutesBefore: null });
+  const [recurrence, setRecurrence] = useState<Recurrence>(defaultRecurrence());
+  const [sharedWithPartner, setSharedWithPartner] = useState(false);
 
   useEffect(() => {
     loadReminders().then(setItems);
@@ -77,6 +86,8 @@ export default function RemindersScreen() {
     setTitle("");
     setNotes("");
     setReminder({ dueAt: null, remindMinutesBefore: null });
+    setRecurrence(defaultRecurrence());
+    setSharedWithPartner(false);
     setSheetOpen(true);
   };
 
@@ -85,6 +96,8 @@ export default function RemindersScreen() {
     setTitle(item.title);
     setNotes(item.notes);
     setReminder({ dueAt: item.dueAt, remindMinutesBefore: item.remindMinutesBefore });
+    setRecurrence(item.recurrence ?? defaultRecurrence());
+    setSharedWithPartner(item.sharedWithPartner ?? false);
     setSheetOpen(true);
   }, []);
 
@@ -97,6 +110,25 @@ export default function RemindersScreen() {
     if (!title.trim()) return;
     await ensurePermissions();
 
+    const scheduleItem = async (item: ReminderItem) => {
+      const baseKey = `reminder:${item.id}`;
+      // cancel existing (up to 10 slots)
+      await Promise.all(
+        Array.from({ length: 10 }, (_, i) => cancelReminder(i === 0 ? baseKey : `${baseKey}:${i}`))
+      );
+      const fireDates = _fireDates(item);
+      await Promise.all(
+        fireDates.map((d, i) =>
+          scheduleReminder(
+            i === 0 ? baseKey : `${baseKey}:${i}`,
+            item.title,
+            item.notes || "Reminder",
+            d,
+          )
+        )
+      );
+    };
+
     if (editingId) {
       const updated: ReminderItem = {
         id: editingId,
@@ -104,17 +136,10 @@ export default function RemindersScreen() {
         notes: notes.trim(),
         dueAt: reminder.dueAt,
         remindMinutesBefore: reminder.remindMinutesBefore,
+        recurrence,
+        sharedWithPartner,
       };
-      await cancelReminder(`reminder:${editingId}`);
-      const fireAt = _fireDate(updated);
-      if (fireAt) {
-        await scheduleReminder(
-          `reminder:${editingId}`,
-          updated.title,
-          updated.notes || "Reminder",
-          fireAt,
-        );
-      }
+      await scheduleItem(updated);
       const next = items.map((x) => (x.id === editingId ? updated : x));
       setItems(next);
       await saveReminders(next);
@@ -126,16 +151,10 @@ export default function RemindersScreen() {
         notes: notes.trim(),
         dueAt: reminder.dueAt,
         remindMinutesBefore: reminder.remindMinutesBefore,
+        recurrence,
+        sharedWithPartner,
       };
-      const fireAt = _fireDate(item);
-      if (fireAt) {
-        await scheduleReminder(
-          `reminder:${id}`,
-          item.title,
-          item.notes || "Reminder",
-          fireAt,
-        );
-      }
+      await scheduleItem(item);
       const next = [...items, item];
       setItems(next);
       await saveReminders(next);
@@ -145,7 +164,10 @@ export default function RemindersScreen() {
 
   const remove = useCallback((item: ReminderItem) => {
     confirmDelete("Delete reminder?", "This cannot be undone.", async () => {
-      await cancelReminder(`reminder:${item.id}`);
+      const baseKey = `reminder:${item.id}`;
+      await Promise.all(
+        Array.from({ length: 10 }, (_, i) => cancelReminder(i === 0 ? baseKey : `${baseKey}:${i}`))
+      );
       const next = items.filter((x) => x.id !== item.id);
       setItems(next);
       await saveReminders(next);
@@ -255,6 +277,18 @@ export default function RemindersScreen() {
           testID="reminder-notes-input"
         />
         <ReminderPicker value={reminder} onChange={setReminder} />
+        <RecurrencePicker value={recurrence} onChange={setRecurrence} />
+        {user?.partner_id && (
+          <View style={styles.shareRow}>
+            <Text style={styles.shareLabel}>Share with partner</Text>
+            <Switch
+              value={sharedWithPartner}
+              onValueChange={setSharedWithPartner}
+              trackColor={{ true: colors.brand, false: colors.borderStrong }}
+              thumbColor="#fff"
+            />
+          </View>
+        )}
         <Pressable
           onPress={submit}
           disabled={!title.trim()}
@@ -276,6 +310,43 @@ function _fireDate(item: ReminderItem): Date | null {
   return new Date(due.getTime() - mins * 60 * 1000);
 }
 
+// Returns up to 10 upcoming fire dates honoring recurrence
+function _fireDates(item: ReminderItem): Date[] {
+  const base = _fireDate(item);
+  if (!base) return [];
+  const rec = item.recurrence ?? { type: "none" };
+  if (rec.type === "none") return [base];
+  const now = new Date();
+  const results: Date[] = [];
+  let cursor = new Date(base);
+  let iterations = 0;
+  while (results.length < 10 && iterations < 200) {
+    iterations++;
+    if (cursor > now) results.push(new Date(cursor));
+    if (rec.type === "daily") cursor.setDate(cursor.getDate() + 1);
+    else if (rec.type === "weekly") {
+      if (rec.weekdays?.length) {
+        cursor.setDate(cursor.getDate() + 1);
+        while (!rec.weekdays.includes(cursor.getDay())) cursor.setDate(cursor.getDate() + 1);
+      } else {
+        cursor.setDate(cursor.getDate() + 7);
+      }
+    } else if (rec.type === "monthly") cursor.setMonth(cursor.getMonth() + 1);
+    else if (rec.type === "yearly") cursor.setFullYear(cursor.getFullYear() + 1);
+    else break;
+  }
+  return results;
+}
+
+function recurrenceLabel(rec: Recurrence): string | null {
+  if (rec.type === "none") return null;
+  if (rec.type === "daily") return "Daily";
+  if (rec.type === "weekly") return rec.weekdays?.length ? "Weekly" : "Weekly";
+  if (rec.type === "monthly") return "Monthly";
+  if (rec.type === "yearly") return "Yearly";
+  return null;
+}
+
 function ReminderCard({
   item,
   onEdit,
@@ -289,6 +360,7 @@ function ReminderCard({
   const now = new Date();
   const isPast = fireAt ? fireAt <= now : false;
   const rl = remindLabel(item.remindMinutesBefore);
+  const recLabel = recurrenceLabel(item.recurrence ?? { type: "none" });
 
   const card = (
     <Pressable
@@ -324,6 +396,18 @@ function ReminderCard({
           )}
           {!item.dueAt && (
             <Text style={styles.cardMetaPast}>No date set</Text>
+          )}
+          {recLabel && (
+            <>
+              <Text style={styles.cardMetaDot}> · </Text>
+              <Text style={[styles.cardMetaText, isPast && styles.cardMetaPast]}>{recLabel}</Text>
+            </>
+          )}
+          {item.sharedWithPartner && (
+            <>
+              <Text style={styles.cardMetaDot}> · </Text>
+              <Text style={[styles.cardMetaText, isPast && styles.cardMetaPast]}>Shared</Text>
+            </>
           )}
         </View>
       </View>
@@ -469,4 +553,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     color: "#fff",
   },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
+  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
 });

@@ -8,33 +8,70 @@ import {
   TextInput,
   Share,
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
-import { MonthCalendar } from "@/src/components/MonthCalendar";
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
-import { toYmd } from "@/src/utils/calendar";
+
+const SPIRIT_ANIMALS: { emoji: string; name: string; trait: string }[] = [
+  { emoji: "🦊", name: "Fox",      trait: "curious, loyal, slightly chaotic" },
+  { emoji: "🐺", name: "Wolf",     trait: "protective, intense, a little dramatic" },
+  { emoji: "🦋", name: "Butterfly", trait: "gentle, always evolving, impossible to pin down" },
+  { emoji: "🐉", name: "Dragon",   trait: "ambitious, warm once trusted, secretly soft" },
+  { emoji: "🦁", name: "Lion",     trait: "bold, generous, needs the spotlight sometimes" },
+  { emoji: "🐢", name: "Turtle",   trait: "steady, deeply caring, slow to anger" },
+  { emoji: "🦅", name: "Eagle",    trait: "visionary, independent, sees the whole picture" },
+  { emoji: "🐬", name: "Dolphin",  trait: "playful, empathetic, keeps everyone laughing" },
+  { emoji: "🦉", name: "Owl",      trait: "thoughtful, observant, awake when others sleep" },
+  { emoji: "🐻", name: "Bear",     trait: "grounding, fiercely loyal, excellent at naps" },
+  { emoji: "🦌", name: "Deer",     trait: "graceful, intuitive, quietly the most observant" },
+  { emoji: "🐝", name: "Bee",      trait: "industrious, community-first, never wastes a moment" },
+];
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function getSpiritAnimal(userId: string) {
+  return SPIRIT_ANIMALS[hashString(userId) % SPIRIT_ANIMALS.length];
+}
 
 export default function Profile() {
   const router = useRouter();
   const { user, signOut, refreshUser } = useAuth();
   const [partner, setPartner] = useState<any>(null);
+  const [spiritVisible, setSpiritVisible] = useState(false);
+  const [stats, setStats] = useState<{
+    lists_created: number;
+    tasks_checked: number;
+    thoughts_shared: number;
+    journal_entries: number;
+    routine_streak: number;
+    days_using: number;
+  } | null>(null);
   const [code, setCode] = useState<string | null>(null);
   const [inviteVisible, setInviteVisible] = useState(false);
   const [acceptVisible, setAcceptVisible] = useState(false);
   const [inviteHandle, setInviteHandle] = useState("");
   const [acceptCode, setAcceptCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const [datePicker, setDatePicker] = useState<"birthday" | "anniversary" | null>(null);
-  const [pickerMonth, setPickerMonth] = useState(() => new Date());
 
   const load = useCallback(async () => {
     try {
-      const res = await api.get("/connection");
-      setPartner(res.data.partner);
+      const [connRes, statsRes] = await Promise.all([
+        api.get("/connection"),
+        api.get("/stats"),
+      ]);
+      setPartner(connRes.data.partner);
+      setStats(statsRes.data);
     } catch {/* ignore */}
   }, []);
 
@@ -83,22 +120,6 @@ export default function Profile() {
     } catch {/* ignore */}
   };
 
-  const formatDate = (s?: string | null) => {
-    if (!s) return "Not set";
-    const d = new Date(s + "T00:00:00");
-    return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
-  };
-
-  const saveDate = async (field: "birthday" | "anniversary", date: Date) => {
-    await api.patch("/profile", { [field]: toYmd(date) });
-    setDatePicker(null);
-    refreshUser();
-  };
-
-  const clearDate = async (field: "birthday" | "anniversary") => {
-    await api.patch("/profile", { [`clear_${field}`]: true });
-    refreshUser();
-  };
 
   return (
     <View style={styles.root} testID="profile-screen">
@@ -109,7 +130,15 @@ export default function Profile() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Identity card */}
-        <View style={styles.card}>
+        <Pressable
+          style={styles.card}
+          onLongPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            setSpiritVisible(true);
+          }}
+          delayLongPress={600}
+          testID="identity-card"
+        >
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{(user?.username || "?")[0].toUpperCase()}</Text>
           </View>
@@ -117,42 +146,19 @@ export default function Profile() {
             <Text style={styles.cardName}>{user?.username}</Text>
             <Text style={styles.cardEmail}>{user?.email}</Text>
           </View>
-        </View>
+        </Pressable>
 
-        <Text style={styles.sectionTitle}>Important dates</Text>
-        <Text style={styles.help}>Birthdays and anniversaries surface on your calendar automatically.</Text>
-        <Pressable testID="birthday-btn" onPress={() => setDatePicker("birthday")} style={styles.actionRow}>
-          <Feather name="gift" size={18} color={colors.brand} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.actionLabel}>Your birthday</Text>
-            <Text style={styles.dateValue}>{formatDate(user?.birthday)}</Text>
-          </View>
-          {user?.birthday ? (
-            <Pressable onPress={() => clearDate("birthday")} hitSlop={8}>
-              <Feather name="x" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          ) : (
-            <Feather name="chevron-right" size={18} color={colors.onSurfaceTertiary} />
-          )}
-        </Pressable>
-        <Pressable testID="anniversary-btn" onPress={() => setDatePicker("anniversary")} style={styles.actionRow}>
-          <Feather name="heart" size={18} color={colors.brand} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.actionLabel}>Anniversary</Text>
-            <Text style={styles.dateValue}>{formatDate(user?.anniversary)}</Text>
-          </View>
-          {user?.anniversary ? (
-            <Pressable onPress={() => clearDate("anniversary")} hitSlop={8}>
-              <Feather name="x" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          ) : (
-            <Feather name="chevron-right" size={18} color={colors.onSurfaceTertiary} />
-          )}
-        </Pressable>
-        {partner?.birthday && (
-          <View style={styles.partnerDateCard}>
-            <Feather name="gift" size={16} color={colors.brand} />
-            <Text style={styles.partnerDateText}>{partner.username}&apos;s birthday · {formatDate(partner.birthday)}</Text>
+        {stats && (
+          <View style={styles.statsCard}>
+            <Text style={styles.statsTitle}>Your Tandem story</Text>
+            <View style={styles.statsGrid}>
+              <StatPill value={stats.lists_created} label="lists" />
+              <StatPill value={stats.tasks_checked} label="tasks done" />
+              <StatPill value={stats.thoughts_shared} label="thoughts" />
+              <StatPill value={stats.journal_entries} label="notes" />
+              <StatPill value={stats.routine_streak} label="day streak" highlight />
+              <StatPill value={stats.days_using} label="days on Tandem" />
+            </View>
           </View>
         )}
 
@@ -271,27 +277,45 @@ export default function Profile() {
         </Pressable>
       </SwipeableSheet>
 
-      <SwipeableSheet visible={!!datePicker} onClose={() => setDatePicker(null)} scrollable={false}>
-        <Text style={styles.sheetTitle}>
-          {datePicker === "birthday" ? "Your birthday" : "Anniversary"}
-        </Text>
-        <MonthCalendar
-          month={pickerMonth}
-          selectedDate={
-            datePicker === "birthday" && user?.birthday
-              ? new Date(user.birthday + "T00:00:00")
-              : datePicker === "anniversary" && user?.anniversary
-                ? new Date(user.anniversary + "T00:00:00")
-                : null
-          }
-          onMonthChange={setPickerMonth}
-          onSelectDate={(d) => datePicker && saveDate(datePicker, d)}
-          compact
-        />
+      <SwipeableSheet visible={spiritVisible} onClose={() => setSpiritVisible(false)} scrollable={false}>
+        {(() => {
+          const animal = getSpiritAnimal(user?.id ?? "tandem");
+          return (
+            <View style={styles.spiritContent}>
+              <Text style={styles.spiritEmoji}>{animal.emoji}</Text>
+              <Text style={styles.spiritTitle}>You are {animal.name}</Text>
+              <Text style={styles.spiritTrait}>{animal.trait}.</Text>
+              <Text style={styles.spiritHint}>Based on the stars. And your user ID.</Text>
+            </View>
+          );
+        })()}
       </SwipeableSheet>
+
     </View>
   );
 }
+
+function StatPill({ value, label, highlight }: { value: number; label: string; highlight?: boolean }) {
+  return (
+    <View style={[statStyles.pill, highlight && statStyles.pillHighlight]}>
+      <Text style={[statStyles.value, highlight && statStyles.valueHighlight]}>{value}</Text>
+      <Text style={[statStyles.label, highlight && statStyles.labelHighlight]}>{label}</Text>
+    </View>
+  );
+}
+
+const statStyles = StyleSheet.create({
+  pill: {
+    flex: 1, minWidth: "30%", alignItems: "center", paddingVertical: spacing.md,
+    borderRadius: radius.md, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  pillHighlight: { backgroundColor: colors.brand, borderColor: colors.brand },
+  value: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  valueHighlight: { color: "#fff" },
+  label: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  labelHighlight: { color: "rgba(255,255,255,0.8)" },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
@@ -305,15 +329,15 @@ const styles = StyleSheet.create({
   cardName: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
   cardEmail: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
   sectionTitle: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.8, textTransform: "uppercase", marginTop: spacing.lg },
+  statsCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.surfaceSecondary },
+  statsTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   help: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 20 },
   partnerCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, backgroundColor: colors.brandTertiary },
   partnerAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   partnerAvatarText: { fontFamily: fonts.display, fontSize: fontSize.xl, color: "#fff" },
   actionRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
   actionLabel: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  dateValue: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  partnerDateCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.lg, borderWidth: 1, borderColor: colors.brandTertiary, borderRadius: radius.md, backgroundColor: colors.brandTertiary },
-  partnerDateText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onBrandTertiary },
   codeCard: { borderWidth: 1, borderColor: colors.brand, borderRadius: radius.lg, padding: spacing.lg, alignItems: "center", gap: spacing.sm, backgroundColor: colors.brandTertiary },
   codeLabel: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, letterSpacing: 0.8, textTransform: "uppercase" },
   codeBig: { fontFamily: fonts.display, fontSize: 40, letterSpacing: 6, color: colors.onBrandTertiary },
@@ -328,4 +352,9 @@ const styles = StyleSheet.create({
   sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
   sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
   error: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.error },
+  spiritContent: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.lg },
+  spiritEmoji: { fontSize: 72, lineHeight: 80 },
+  spiritTitle: { fontFamily: fonts.display, fontSize: 28, color: colors.onSurface, textAlign: "center" },
+  spiritTrait: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, textAlign: "center", lineHeight: 24 },
+  spiritHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: spacing.sm, textAlign: "center" },
 });
