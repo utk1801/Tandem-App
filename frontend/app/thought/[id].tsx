@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Switch,
 } from "react-native";
+
+const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -19,7 +21,7 @@ import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { MarkdownContent } from "@/src/components/MarkdownContent";
 import { MarkdownEditor } from "@/src/components/MarkdownEditor";
 
-type Thought = { id: string; text: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
+type Thought = { id: string; text: string; mood?: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 
 export default function ThoughtDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,6 +31,7 @@ export default function ThoughtDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
+  const [mood, setMood] = useState<string | undefined>();
   const [share, setShare] = useState(false);
 
   const load = useCallback(async () => {
@@ -48,13 +51,14 @@ export default function ThoughtDetailScreen() {
   const openEdit = () => {
     if (!thought) return;
     setText(thought.text);
+    setMood(thought.mood);
     setShare(!!thought.shared);
     setEditing(true);
   };
 
   const saveEdit = async () => {
     if (!thought || !text.trim()) return;
-    const res = await api.patch(`/thoughts/${thought.id}`, { text: text.trim(), share_with_partner: share });
+    const res = await api.patch(`/thoughts/${thought.id}`, { text: text.trim(), mood: mood ?? null, share_with_partner: share });
     setThought(res.data);
     setEditing(false);
   };
@@ -88,6 +92,7 @@ export default function ThoughtDetailScreen() {
         <MarkdownContent content={thought.text} />
         <Text style={styles.meta}>
           {thought.owner_id === user?.id ? "You" : thought.owner_username}
+          {thought.mood ? ` · ${thought.mood}` : ""}
           {thought.shared ? " · shared" : ""} · {new Date(thought.created_at).toLocaleString()}
         </Text>
       </ScrollView>
@@ -100,6 +105,13 @@ export default function ThoughtDetailScreen() {
           placeholder="What's on your mind? Markdown supported."
           minHeight={120}
         />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {MOODS.map((m) => (
+            <Pressable key={m} onPress={() => setMood(mood === m ? undefined : m)} style={[styles.moodChip, mood === m && styles.moodChipOn]}>
+              <Text style={[styles.moodText, mood === m && { color: "#fff" }]}>{m}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
         {user?.partner_id && (
           <View style={styles.shareRow}>
             <Text style={styles.meta}>Share with partner</Text>
@@ -124,4 +136,7 @@ const styles = StyleSheet.create({
   shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
   primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+  moodChip: { paddingHorizontal: spacing.lg, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  moodChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  moodText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
 });

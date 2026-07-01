@@ -52,9 +52,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="journal"
         options={{
-          title: "Journal",
-          tabBarIcon: ({ color, size }) => <Feather name="book-open" color={color} size={size} />,
-          tabBarButtonTestID: "tab-journal",
+          title: "Notes",
+          tabBarIcon: ({ color, size }) => <Feather name="edit-3" color={color} size={size} />,
+          tabBarButtonTestID: "tab-notes",
         }}
       />
       <Tabs.Screen

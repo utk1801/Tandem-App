@@ -13,7 +13,7 @@ import {
   Image,
   Switch,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -33,6 +33,7 @@ import { NaturalLanguageListButton } from "@/src/components/NaturalLanguageListB
 import type { Recurrence } from "@/src/types/calendar";
 import { formatRecurrence } from "@/src/utils/calendar";
 import { listTypeLabel, type ListType } from "@/src/utils/listTypes";
+import { useListRealtime } from "@/src/hooks/useListRealtime";
 
 type Item = {
   id: string; text: string; qty?: string | null; done: boolean;
@@ -60,7 +61,6 @@ export default function ListDetail() {
   const [mediaPreview, setMediaPreview] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [reminderVisible, setReminderVisible] = useState(false);
   const [reminder, setReminder] = useState<Reminder>({ dueAt: null, remindMinutesBefore: null });
   const [recurrence, setRecurrence] = useState<Recurrence>(defaultRecurrence());
   const [editVisible, setEditVisible] = useState(false);
@@ -69,6 +69,8 @@ export default function ListDetail() {
   const [listName, setListName] = useState("");
   const [shareList, setShareList] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [liveConnected, setLiveConnected] = useState(false);
+  const { bottom: bottomInset } = useSafeAreaInsets();
   const editOpenedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -83,6 +85,25 @@ export default function ListDetail() {
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  useListRealtime(id, {
+    onInsert: (row) => {
+      setLiveConnected(true);
+      setData((d) => {
+        if (!d) return d;
+        if (d.items.some((i) => i.id === row.id)) return d;
+        return { ...d, items: [...d.items, row as Item] };
+      });
+    },
+    onUpdate: (row) => {
+      setLiveConnected(true);
+      setData((d) => d ? { ...d, items: d.items.map((i) => i.id === row.id ? { ...i, ...row } as Item : i) } : d);
+    },
+    onDelete: (row) => {
+      setLiveConnected(true);
+      setData((d) => d ? { ...d, items: d.items.filter((i) => i.id !== row.id) } : d);
+    },
+  });
 
   useEffect(() => {
     if (!editItem || !data?.items || editOpenedRef.current) return;
@@ -278,7 +299,12 @@ export default function ListDetail() {
           <Feather name="arrow-left" size={22} color={colors.onSurface} />
         </Pressable>
         <Pressable style={{ flex: 1 }} onPress={() => isOwner && setRenameVisible(true)}>
-          <Text style={styles.kicker}>{typeLabel}</Text>
+          <View style={styles.kickerRow}>
+            <Text style={styles.kicker}>{typeLabel}</Text>
+            {shareList && liveConnected && (
+              <View style={styles.liveDot} />
+            )}
+          </View>
           <Text style={styles.title} numberOfLines={2}>{data.name}</Text>
         </Pressable>
         <NaturalLanguageListButton listId={id} listType={data.type} onComplete={load} compact />
@@ -305,11 +331,12 @@ export default function ListDetail() {
         </View>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={-bottomInset}>
         <FlatList
           data={[...data.items].sort((a, b) => Number(a.done) - Number(b.done))}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.list}
+          style={{ flex: 1 }}
           ListEmptyComponent={
             <View style={styles.emptyBlock}>
               <Feather name="circle" size={28} color={colors.onSurfaceTertiary} />
@@ -357,7 +384,7 @@ export default function ListDetail() {
           }}
         />
 
-        <View style={styles.composerWrap}>
+        <View style={[styles.composerWrap, { paddingBottom: bottomInset || spacing.md }]}>
           <ItemKindPicker value={kind} onChange={setKind} />
           {showUrlField && (
             <TextInput value={url} onChangeText={setUrl} placeholder={kind === "video" ? "Paste video URL" : "Paste link URL"} placeholderTextColor={colors.onSurfaceTertiary} style={styles.urlInput} autoCapitalize="none" />
@@ -368,17 +395,7 @@ export default function ListDetail() {
               <Text style={styles.pickBtnText}>{uploadingImage ? "Uploading…" : mediaUri ? "Change image" : "Attach image"}</Text>
             </Pressable>
           )}
-          {dueLabel && (
-            <View style={styles.pendingDue}>
-              <Feather name="clock" size={12} color={colors.brand} />
-              <Text style={styles.pendingDueText}>{dueLabel}</Text>
-              <Pressable onPress={() => setReminder({ dueAt: null, remindMinutesBefore: null })} hitSlop={6}><Feather name="x" size={12} color={colors.brand} /></Pressable>
-            </View>
-          )}
           <View style={styles.composer}>
-            <Pressable testID="open-reminder-btn" onPress={() => setReminderVisible(true)} style={styles.iconBtn}>
-              <Feather name="bell" size={18} color={dueLabel ? colors.brand : colors.onSurfaceSecondary} />
-            </Pressable>
             <TextInput testID="new-item-input" value={text} onChangeText={setText} placeholder={isGrocery ? "Add an item…" : "Add a task or memo…"} placeholderTextColor={colors.onSurfaceTertiary} style={styles.composerInput} onSubmitEditing={addItem} returnKeyType="send" />
             {isGrocery && <TextInput testID="new-item-qty-input" value={qty} onChangeText={setQty} placeholder="qty" placeholderTextColor={colors.onSurfaceTertiary} style={styles.qtyInput} onSubmitEditing={addItem} returnKeyType="send" />}
             <Pressable testID="add-item-btn" onPress={addItem} style={styles.addBtn} disabled={uploadingImage}><Feather name="arrow-up" size={20} color="#fff" /></Pressable>
@@ -386,18 +403,9 @@ export default function ListDetail() {
         </View>
       </KeyboardAvoidingView>
 
-      <SwipeableSheet visible={reminderVisible} onClose={() => setReminderVisible(false)}>
-        <Text style={styles.sheetTitle}>Schedule this task</Text>
-        <ReminderPicker value={reminder} onChange={setReminder} />
-        <RecurrencePicker value={recurrence} onChange={setRecurrence} />
-        <Pressable testID="reminder-done-btn" onPress={() => setReminderVisible(false)} style={styles.sheetPrimary}>
-          <Text style={styles.sheetPrimaryText}>Done</Text>
-        </Pressable>
-      </SwipeableSheet>
-
       <SwipeableSheet visible={editVisible} onClose={() => setEditVisible(false)}>
         <Text style={styles.sheetTitle}>Edit item</Text>
-        <TextInput value={text} onChangeText={setText} style={styles.sheetInput} placeholder="Title" placeholderTextColor={colors.onSurfaceTertiary} />
+        <TextInput value={text} onChangeText={setText} style={[styles.sheetInput, { minHeight: 80, textAlignVertical: "top" }]} placeholder="Title" placeholderTextColor={colors.onSurfaceTertiary} multiline />
         {isGrocery && <TextInput value={qty} onChangeText={setQty} style={styles.sheetInput} placeholder="Qty" placeholderTextColor={colors.onSurfaceTertiary} />}
         {renderComposerFields()}
         <Pressable onPress={saveEdit} style={styles.sheetPrimary} disabled={uploadingImage}><Text style={styles.sheetPrimaryText}>Save changes</Text></Pressable>
@@ -417,12 +425,14 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
   empty: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
   header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center", backgroundColor: colors.surface },
+  kickerRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.8, textTransform: "uppercase" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#3DBF7A", marginBottom: 1 },
   title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginTop: 2 },
   shareRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceSecondary },
   shareLabel: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurface },
   shareHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  list: { padding: spacing.xl, gap: spacing.sm },
+  list: { padding: spacing.xl, gap: spacing.sm, flexGrow: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
   checkboxWrap: { padding: 2 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
@@ -440,9 +450,7 @@ const styles = StyleSheet.create({
   urlInput: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   pickBtn: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs },
   pickBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
-  pendingDue: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  pendingDueText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
-  composer: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.lg },
+  composer: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border },
   composerInput: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, height: 44 },
   qtyInput: { width: 60, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, height: 44, textAlign: "center" },

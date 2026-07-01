@@ -286,11 +286,13 @@ class InviteAcceptReq(BaseModel):
 
 class ThoughtCreate(BaseModel):
     text: str
+    mood: Optional[str] = None
     share_with_partner: bool = False
 
 
 class ThoughtUpdate(BaseModel):
     text: Optional[str] = None
+    mood: Optional[str] = None
     share_with_partner: Optional[bool] = None
 
 
@@ -970,6 +972,7 @@ async def create_thought(req: ThoughtCreate, user: dict = Depends(current_user))
     payload = {
         "owner_id": user["id"],
         "text": req.text.strip()[:1000],
+        "mood": req.mood or None,
         "shared": bool(req.share_with_partner and user.get("partner_id")),
     }
     item = sb.table("thoughts").insert(payload).execute().data[0]
@@ -998,6 +1001,8 @@ async def update_thought(tid: str, req: ThoughtUpdate, user: dict = Depends(curr
     update: dict = {}
     if req.text is not None:
         update["text"] = req.text.strip()[:1000]
+    if req.mood is not None:
+        update["mood"] = req.mood or None
     if req.share_with_partner is not None:
         update["shared"] = bool(req.share_with_partner and user.get("partner_id"))
     if update:

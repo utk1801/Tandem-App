@@ -20,9 +20,7 @@ import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { MarkdownContent } from "@/src/components/MarkdownContent";
 import { MarkdownEditor } from "@/src/components/MarkdownEditor";
 
-const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
-
-type Entry = { id: string; title: string; body: string; mood?: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
+type Entry = { id: string; title: string; body: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 
 export default function JournalDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,7 +31,6 @@ export default function JournalDetailScreen() {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [mood, setMood] = useState<string | undefined>();
   const [share, setShare] = useState(false);
 
   const load = useCallback(async () => {
@@ -54,7 +51,6 @@ export default function JournalDetailScreen() {
     if (!entry) return;
     setTitle(entry.title);
     setBody(entry.body);
-    setMood(entry.mood);
     setShare(!!entry.shared);
     setEditing(true);
   };
@@ -64,7 +60,6 @@ export default function JournalDetailScreen() {
     const res = await api.patch(`/journal/${entry.id}`, {
       title: title.trim(),
       body: body.trim(),
-      mood,
       share_with_partner: share,
     });
     setEntry(res.data);
@@ -99,7 +94,6 @@ export default function JournalDetailScreen() {
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.date}>
           {new Date(entry.created_at).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-          {entry.mood ? ` · ${entry.mood}` : ""}
         </Text>
         <MarkdownContent content={entry.body} />
         <Text style={styles.meta}>
@@ -117,13 +111,6 @@ export default function JournalDetailScreen() {
           placeholder="Body — markdown supported."
           minHeight={140}
         />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-          {MOODS.map((m) => (
-            <Pressable key={m} onPress={() => setMood(mood === m ? undefined : m)} style={[styles.moodChip, mood === m && styles.moodChipOn]}>
-              <Text style={[styles.moodText, mood === m && { color: "#fff" }]}>{m}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
         {user?.partner_id && (
           <View style={styles.shareRow}>
             <Text style={styles.meta}>Share with partner</Text>
@@ -150,9 +137,6 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: colors.surface, padding: spacing.xl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: "90%", gap: spacing.md },
   sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.sm },
   input: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md, textAlignVertical: "top" },
-  moodChip: { paddingHorizontal: spacing.lg, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  moodChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  moodText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
   shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: spacing.sm },
   primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
   primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },

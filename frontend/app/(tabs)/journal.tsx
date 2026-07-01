@@ -20,7 +20,7 @@ import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { MarkdownEditor } from "@/src/components/MarkdownEditor";
 import { stripMarkdown } from "@/src/utils/markdown";
 
-type Thought = { id: string; text: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
+type Thought = { id: string; text: string; mood?: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 type JournalEntry = { id: string; title: string; body: string; mood?: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 
 const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
@@ -28,7 +28,7 @@ const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
 export default function JournalScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [tab, setTab] = useState<"thoughts" | "journal">("thoughts");
+  const [tab, setTab] = useState<"thoughts" | "journal">("journal");
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [creating, setCreating] = useState(false);
@@ -56,6 +56,7 @@ export default function JournalScreen() {
     setEditingId(t.id);
     setCreating(true);
     setText(t.text);
+    setMood(t.mood);
     setShare(!!t.shared);
   };
 
@@ -66,7 +67,6 @@ export default function JournalScreen() {
     setCreating(true);
     setTitle(e.title);
     setText(e.body);
-    setMood(e.mood);
     setShare(!!e.shared);
   };
 
@@ -74,19 +74,19 @@ export default function JournalScreen() {
     if (tab === "thoughts") {
       if (!text.trim()) return;
       if (editingId) {
-        const res = await api.patch(`/thoughts/${editingId}`, { text: text.trim(), share_with_partner: share });
+        const res = await api.patch(`/thoughts/${editingId}`, { text: text.trim(), mood: mood ?? null, share_with_partner: share });
         setThoughts((p) => p.map((x) => (x.id === editingId ? res.data : x)));
       } else {
-        const res = await api.post("/thoughts", { text: text.trim(), share_with_partner: share });
+        const res = await api.post("/thoughts", { text: text.trim(), mood: mood ?? null, share_with_partner: share });
         setThoughts((p) => [res.data, ...p]);
       }
     } else {
       if (!title.trim() && !text.trim()) return;
       if (editingId) {
-        const res = await api.patch(`/journal/${editingId}`, { title: title.trim(), body: text.trim(), mood, share_with_partner: share });
+        const res = await api.patch(`/journal/${editingId}`, { title: title.trim(), body: text.trim(), share_with_partner: share });
         setEntries((p) => p.map((x) => (x.id === editingId ? res.data : x)));
       } else {
-        const res = await api.post("/journal", { title: title.trim(), body: text.trim(), mood, share_with_partner: share });
+        const res = await api.post("/journal", { title: title.trim(), body: text.trim(), share_with_partner: share });
         setEntries((p) => [res.data, ...p]);
       }
     }
@@ -113,7 +113,7 @@ export default function JournalScreen() {
       <SafeAreaView edges={["top"]} style={styles.header}>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.heading}>Journal</Text>
+            <Text style={styles.heading}>Notes</Text>
             <Text style={styles.subhead}>Thoughts and reflections, side by side.</Text>
           </View>
           <Pressable
@@ -126,18 +126,18 @@ export default function JournalScreen() {
         </View>
         <View style={styles.segment}>
           <Pressable
+            testID="seg-journal"
+            onPress={() => setTab("journal")}
+            style={[styles.segItem, tab === "journal" && styles.segItemOn]}
+          >
+            <Text style={[styles.segText, tab === "journal" && styles.segTextOn]}>Notes</Text>
+          </Pressable>
+          <Pressable
             testID="seg-thoughts"
             onPress={() => setTab("thoughts")}
             style={[styles.segItem, tab === "thoughts" && styles.segItemOn]}
           >
             <Text style={[styles.segText, tab === "thoughts" && styles.segTextOn]}>Thoughts</Text>
-          </Pressable>
-          <Pressable
-            testID="seg-journal"
-            onPress={() => setTab("journal")}
-            style={[styles.segItem, tab === "journal" && styles.segItemOn]}
-          >
-            <Text style={[styles.segText, tab === "journal" && styles.segTextOn]}>Journal</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -161,6 +161,7 @@ export default function JournalScreen() {
                     <View style={styles.thoughtMeta}>
                       <Text style={styles.metaSmall}>
                         {t.owner_id === user?.id ? "you" : t.owner_username}
+                        {t.mood ? ` · ${t.mood}` : ""}
                         {t.shared && " · shared"}
                       </Text>
                       <Text style={styles.metaSmall}>{new Date(t.created_at).toLocaleDateString()}</Text>
@@ -185,7 +186,6 @@ export default function JournalScreen() {
                 <Pressable testID={`journal-${e.id}`} onPress={() => router.push(`/journal/${e.id}`)} style={styles.journalCard}>
                   <Text style={styles.journalDate}>
                     {new Date(e.created_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                    {e.mood && `  ·  ${e.mood}`}
                     {e.owner_id !== user?.id && `  ·  ${e.owner_username}`}
                     {e.shared && e.owner_id === user?.id && `  ·  shared`}
                   </Text>
@@ -200,7 +200,7 @@ export default function JournalScreen() {
       </ScrollView>
 
       <SwipeableSheet visible={creating} onClose={() => setCreating(false)}>
-        <Text style={styles.sheetTitle}>{editingId ? (tab === "thoughts" ? "Edit thought" : "Edit entry") : (tab === "thoughts" ? "New thought" : "New journal entry")}</Text>
+        <Text style={styles.sheetTitle}>{editingId ? (tab === "thoughts" ? "Edit thought" : "Edit note") : (tab === "thoughts" ? "New thought" : "New note")}</Text>
         {tab === "journal" && (
           <TextInput
             testID="entry-title-input"
@@ -218,7 +218,7 @@ export default function JournalScreen() {
           placeholder={tab === "thoughts" ? "What's on your mind? Markdown supported." : "Write freely… Markdown supported."}
           minHeight={tab === "journal" ? 140 : 120}
         />
-        {tab === "journal" && (
+        {tab === "thoughts" && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
             {MOODS.map((m) => (
               <Pressable

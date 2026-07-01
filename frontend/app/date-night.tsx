@@ -53,21 +53,15 @@ export default function DateNightScreen() {
     }
   };
 
-  const saveAsList = async (idea: Idea, index: number) => {
+  const saveAsNote = async (idea: Idea, index: number) => {
     setSaving(index);
     try {
-      const listRes = await api.post("/lists", {
-        name: `Date: ${idea.title}`,
-        type: "custom",
-        custom_label: "Date Night",
+      const body = `${idea.description}\n\n${idea.checklist.map((c) => `- ${c}`).join("\n")}`;
+      await api.post("/journal", {
+        title: `Date Night: ${idea.title}`,
+        body,
         share_with_partner: true,
       });
-      const listId = listRes.data.id;
-      await Promise.all(
-        idea.checklist.map((item) =>
-          api.post(`/lists/${listId}/items`, { text: item })
-        )
-      );
       setSaved((prev) => new Set(prev).add(index));
     } catch {
       // ignore — user can retry
@@ -207,7 +201,7 @@ export default function DateNightScreen() {
               index={i}
               saving={saving === i}
               saved={saved.has(i)}
-              onSave={() => saveAsList(idea, i)}
+              onSave={() => saveAsNote(idea, i)}
             />
           ))}
           <Pressable onPress={reset} style={styles.regenerateBtn}>
@@ -300,7 +294,7 @@ function IdeaCard({
               <>
                 <Feather name={saved ? "check" : "plus"} size={16} color={saved ? "#fff" : colors.brand} />
                 <Text style={[styles.saveBtnText, saved && styles.saveBtnTextDone]}>
-                  {saved ? "Saved to lists" : "Save as list"}
+                  {saved ? "Saved to notes" : "Save to notes"}
                 </Text>
               </>
             )}
