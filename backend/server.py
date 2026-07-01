@@ -1357,6 +1357,47 @@ async def health():
         return {"db": "error", "detail": str(e)[:200]}
 
 
+# ======================= STATS =======================
+@api_router.get("/stats")
+async def get_stats(user: dict = Depends(current_user)):
+    uid = user["id"]
+
+    lists_count = len(sb.table("lists").select("id").eq("owner_id", uid).execute().data or [])
+    items_done = len(sb.table("list_items").select("id").eq("created_by", uid).eq("done", True).execute().data or [])
+    thoughts_count = len(sb.table("thoughts").select("id").eq("owner_id", uid).execute().data or [])
+    journal_count = len(sb.table("journal_entries").select("id").eq("owner_id", uid).execute().data or [])
+
+    # routine streak: count consecutive days ending today with at least one check
+    from datetime import date, timedelta
+    checks = sb.table("routine_checks").select("date").eq("user_id", uid).order("date", desc=True).execute().data or []
+    checked_dates = sorted({r["date"] for r in checks}, reverse=True)
+    streak = 0
+    cursor = date.today()
+    for d in checked_dates:
+        if d == str(cursor):
+            streak += 1
+            cursor -= timedelta(days=1)
+        elif d < str(cursor):
+            break
+
+    # days since joined
+    profile = sb.table("profiles").select("created_at").eq("id", uid).single().execute().data
+    days_using = 0
+    if profile and profile.get("created_at"):
+        from datetime import datetime, timezone
+        joined = datetime.fromisoformat(profile["created_at"].replace("Z", "+00:00"))
+        days_using = (datetime.now(timezone.utc) - joined).days + 1
+
+    return {
+        "lists_created": lists_count,
+        "tasks_checked": items_done,
+        "thoughts_shared": thoughts_count,
+        "journal_entries": journal_count,
+        "routine_streak": streak,
+        "days_using": days_using,
+    }
+
+
 # ======================= FREE TIER KEEPALIVE =======================
 @api_router.get("/ping")
 def ping():
