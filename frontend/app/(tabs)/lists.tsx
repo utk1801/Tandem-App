@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   TextInput,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -41,6 +42,7 @@ export default function ListsHub() {
   const router = useRouter();
   const [lists, setLists] = useState<TandemList[]>([]);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<ListType>("todo");
@@ -132,6 +134,13 @@ export default function ListsHub() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+            tintColor={colors.brand}
+          />
+        }
       >
         {filtered.length === 0 ? (
           <View style={styles.empty}>

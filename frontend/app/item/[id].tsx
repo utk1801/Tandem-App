@@ -130,10 +130,8 @@ export default function ItemDetailScreen() {
         <Pressable onPress={() => router.back()} hitSlop={10}>
           <Feather name="arrow-left" size={22} color={colors.onSurface} />
         </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.kicker}>{listLabel}</Text>
-          <Text style={styles.title} numberOfLines={2}>{item.text}</Text>
-        </View>
+        <Text style={styles.kicker}>{listLabel}</Text>
+        <View style={{ flex: 1 }} />
         <Pressable onPress={() => router.push(`/list/${item.list_id}?editItem=${item.id}`)} hitSlop={10}>
           <Feather name="edit-2" size={20} color={colors.brand} />
         </Pressable>
@@ -143,6 +141,7 @@ export default function ItemDetailScreen() {
       </SafeAreaView>
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>{item.text}</Text>
         <View style={styles.metaRow}>
           <Text style={styles.badge}>{kind}</Text>
           {item.done && <Text style={styles.badgeDone}>Done</Text>}
@@ -218,7 +217,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center",
   },
   kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, textTransform: "uppercase", letterSpacing: 0.8 },
-  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginTop: 2 },
+  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.sm },
   body: { padding: spacing.xl, gap: spacing.lg, paddingBottom: spacing.xxxl },
   metaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
   badge: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onBrandPrimary, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill, overflow: "hidden", textTransform: "capitalize" },

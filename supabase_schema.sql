@@ -118,9 +118,11 @@ CREATE TABLE IF NOT EXISTS public.thoughts (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id    UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   text        TEXT NOT NULL,
+  mood        TEXT,
   shared      BOOLEAN DEFAULT FALSE,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE public.thoughts ADD COLUMN IF NOT EXISTS mood TEXT;
 
 -- -----------------------------------------------------------------------------
 -- journal entries
