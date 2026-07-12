@@ -132,7 +132,9 @@ async def send_push(recipients: List[str], data: dict, idempotency_key: Optional
     try:
         rows = sb.table("push_tokens").select("device_token").in_("user_id", recipients).execute().data or []
         tokens = [r["device_token"] for r in rows if r.get("device_token")]
+        logger.info(f"[push-debug] send_push: recipients={recipients} tokens_found={len(tokens)}")
         if not tokens:
+            logger.warning(f"[push-debug] no push tokens found for recipients={recipients}")
             return
         notification = messaging.Notification(title=data["title"], body=data["message"])
         msgs = [
@@ -779,6 +781,7 @@ async def add_item(list_id: str, req: ItemCreate, user: dict = Depends(current_u
     item = sb.table("list_items").insert(payload).execute().data[0]
     if item.get("media_uri"):
         item["media_uri"] = _resolve_media_uri(item["media_uri"])
+    logger.info(f"[push-debug] add_item: shared_with={lst.get('shared_with')} partner_id={user.get('partner_id')}")
     if lst.get("shared_with") and user.get("partner_id"):
         await send_push(
             recipients=[user["partner_id"]],
