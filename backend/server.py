@@ -147,7 +147,23 @@ async def send_push(recipients: List[str], data: dict, idempotency_key: Optional
         ]
         result = messaging.send_each(msgs)
         if result.failure_count:
-            logger.warning(f"Push: {result.failure_count}/{len(tokens)} failed")
+            # Log error codes and purge invalid tokens so they don't block future pushes
+            failed_tokens = []
+            for i, resp in enumerate(result.responses):
+                if not resp.success:
+                    err = resp.exception
+                    logger.warning(f"Push failed for token[{i}]: {err}")
+                    # registration-not-found and invalid-registration = stale token, safe to delete
+                    if hasattr(err, 'code') and err.code in (
+                        'registration-token-not-registered',
+                        'invalid-registration-token',
+                        'messaging/registration-token-not-registered',
+                        'messaging/invalid-registration-token',
+                    ):
+                        failed_tokens.append(tokens[i])
+            if failed_tokens:
+                sb.table("push_tokens").delete().in_("device_token", failed_tokens).execute()
+                logger.info(f"Purged {len(failed_tokens)} stale push token(s)")
     except Exception as e:
         logger.warning(f"Push notification failed (non-blocking): {e}")
 
