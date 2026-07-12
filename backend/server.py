@@ -138,13 +138,17 @@ async def _send_expo_push(tokens: list[str], data: dict) -> list[str]:
                 json=messages,
                 headers={"Accept": "application/json", "Content-Type": "application/json"},
             )
-            results = resp.json().get("data", [])
+            raw = resp.json()
+            logger.info(f"[push-debug] Expo API response: status={resp.status_code} body={raw}")
+            results = raw.get("data", [])
             for i, r in enumerate(results):
                 if r.get("status") == "error":
                     details = r.get("details", {})
                     logger.warning(f"Expo push failed for token[{i}]: {r.get('message')} details={details}")
                     if details.get("error") in ("DeviceNotRegistered", "InvalidCredentials"):
                         failed.append(tokens[i])
+                else:
+                    logger.info(f"[push-debug] Expo push ok for token[{i}]: id={r.get('id')}")
     except Exception as e:
         logger.warning(f"Expo push batch failed: {e}")
     return failed
