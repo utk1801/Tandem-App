@@ -32,6 +32,7 @@ import firebase_admin
 from firebase_admin import credentials, messaging
 import json
 import re
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -123,11 +124,34 @@ def gen_code(n=6) -> str:
     return ''.join(secrets.choice(alphabet) for _ in range(n))
 
 
+async def _send_expo_push(tokens: list[str], data: dict) -> list[str]:
+    """Send via Expo Push API. Returns list of failed tokens to purge."""
+    messages = [
+        {"to": t, "title": data["title"], "body": data["message"], "data": {"action_url": data.get("action_url", "")}}
+        for t in tokens
+    ]
+    failed = []
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+            )
+            results = resp.json().get("data", [])
+            for i, r in enumerate(results):
+                if r.get("status") == "error":
+                    details = r.get("details", {})
+                    logger.warning(f"Expo push failed for token[{i}]: {r.get('message')} details={details}")
+                    if details.get("error") in ("DeviceNotRegistered", "InvalidCredentials"):
+                        failed.append(tokens[i])
+    except Exception as e:
+        logger.warning(f"Expo push batch failed: {e}")
+    return failed
+
+
 async def send_push(recipients: List[str], data: dict, idempotency_key: Optional[str] = None) -> None:
     if not recipients or not data.get("title") or not data.get("message"):
-        return
-    if not firebase_admin._apps:
-        logger.warning("Firebase not initialized — skipping push")
         return
     try:
         rows = sb.table("push_tokens").select("device_token").in_("user_id", recipients).execute().data or []
@@ -136,30 +160,45 @@ async def send_push(recipients: List[str], data: dict, idempotency_key: Optional
         if not tokens:
             logger.warning(f"[push-debug] no push tokens found for recipients={recipients}")
             return
-        notification = messaging.Notification(title=data["title"], body=data["message"])
-        msgs = [
-            messaging.Message(
-                notification=notification,
-                data={"action_url": data.get("action_url", "")},
-                token=token,
-            )
-            for token in tokens
-        ]
-        result = messaging.send_each(msgs)
-        if result.failure_count:
-            # Log error codes and purge invalid tokens so they don't block future pushes
-            failed_tokens = []
-            for i, resp in enumerate(result.responses):
-                if not resp.success:
-                    err = resp.exception
-                    err_str = str(err).lower()
-                    logger.warning(f"Push failed for token[{i}]: {err} (code={getattr(err, 'code', 'none')})")
-                    # Purge on any token validity error — match by string since FCM error codes vary
-                    if any(x in err_str for x in ('not a valid', 'not registered', 'invalid-registration', 'registration-token-not-registered')):
-                        failed_tokens.append(tokens[i])
-            if failed_tokens:
-                sb.table("push_tokens").delete().in_("device_token", failed_tokens).execute()
-                logger.info(f"Purged {len(failed_tokens)} stale push token(s)")
+
+        expo_tokens = [t for t in tokens if t.startswith("ExponentPushToken[")]
+        fcm_tokens = [t for t in tokens if not t.startswith("ExponentPushToken[")]
+        failed_tokens = []
+
+        # Expo Push API (iOS via Expo Go, Android via Expo)
+        if expo_tokens:
+            logger.info(f"[push-debug] sending via Expo API: {len(expo_tokens)} token(s)")
+            failed_expo = await _send_expo_push(expo_tokens, data)
+            failed_tokens.extend(failed_expo)
+
+        # Firebase (native Android FCM tokens)
+        if fcm_tokens:
+            if not firebase_admin._apps:
+                logger.warning("Firebase not initialized — skipping FCM push")
+            else:
+                logger.info(f"[push-debug] sending via Firebase: {len(fcm_tokens)} token(s)")
+                notification = messaging.Notification(title=data["title"], body=data["message"])
+                msgs = [
+                    messaging.Message(
+                        notification=notification,
+                        data={"action_url": data.get("action_url", "")},
+                        token=token,
+                    )
+                    for token in fcm_tokens
+                ]
+                result = messaging.send_each(msgs)
+                if result.failure_count:
+                    for i, resp in enumerate(result.responses):
+                        if not resp.success:
+                            err = resp.exception
+                            err_str = str(err).lower()
+                            logger.warning(f"Push failed for token[{i}]: {err} (code={getattr(err, 'code', 'none')})")
+                            if any(x in err_str for x in ('not a valid', 'not registered', 'invalid-registration', 'registration-token-not-registered')):
+                                failed_tokens.append(fcm_tokens[i])
+
+        if failed_tokens:
+            sb.table("push_tokens").delete().in_("device_token", failed_tokens).execute()
+            logger.info(f"Purged {len(failed_tokens)} stale push token(s)")
     except Exception as e:
         logger.warning(f"Push notification failed (non-blocking): {e}")
 
