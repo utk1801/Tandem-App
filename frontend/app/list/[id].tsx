@@ -12,6 +12,7 @@ import {
   ScrollView,
   Image,
   Switch,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
@@ -61,6 +62,7 @@ export default function ListDetail() {
   const [mediaPreview, setMediaPreview] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [reminder, setReminder] = useState<Reminder>({ dueAt: null, remindMinutesBefore: null });
   const [recurrence, setRecurrence] = useState<Recurrence>(defaultRecurrence());
   const [editVisible, setEditVisible] = useState(false);
@@ -337,6 +339,13 @@ export default function ListDetail() {
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.list}
           style={{ flex: 1 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+              tintColor={colors.brand}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyBlock}>
               <Feather name="circle" size={28} color={colors.onSurfaceTertiary} />

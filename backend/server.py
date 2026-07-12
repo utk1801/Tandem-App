@@ -80,6 +80,9 @@ if not firebase_admin._apps:
         _sa = _load_firebase_service_account()
         if _sa:
             firebase_admin.initialize_app(credentials.Certificate(_sa))
+            logger.info("Firebase initialized OK")
+        else:
+            logger.warning("Firebase NOT initialized — no service account key found (push notifications disabled)")
     except Exception as _e:
         logger.warning(f"Firebase init failed: {_e}")
 
@@ -812,15 +815,25 @@ async def update_item(item_id: str, req: ItemUpdate, user: dict = Depends(curren
     updated = sb.table("list_items").select("*").eq("id", item_id).limit(1).execute().data[0]
     if updated.get("media_uri"):
         updated["media_uri"] = _resolve_media_uri(updated["media_uri"])
-    if (
-        updated.get("done") and update.get("done") is True
-        and lst.get("shared_with") and user.get("partner_id")
-    ):
-        await send_push(
-            recipients=[user["partner_id"]],
-            data={"title": f"{user['username']} checked off a task", "message": f"{lst['name']}: {updated['text']}", "action_url": f"/list/{item['list_id']}"},
-            idempotency_key=f"item-done-{item_id}-{iso(now_utc())[:13]}",
-        )
+    if lst.get("shared_with") and user.get("partner_id"):
+        if update.get("done") is True:
+            await send_push(
+                recipients=[user["partner_id"]],
+                data={"title": f"{user['username']} checked off an item", "message": f"{lst['name']}: {updated['text']}", "action_url": f"/list/{item['list_id']}"},
+                idempotency_key=f"item-done-{item_id}-{iso(now_utc())[:13]}",
+            )
+        elif update.get("done") is False:
+            await send_push(
+                recipients=[user["partner_id"]],
+                data={"title": f"{user['username']} unchecked an item", "message": f"{lst['name']}: {updated['text']}", "action_url": f"/list/{item['list_id']}"},
+                idempotency_key=f"item-undone-{item_id}-{iso(now_utc())[:13]}",
+            )
+        elif "text" in update:
+            await send_push(
+                recipients=[user["partner_id"]],
+                data={"title": f"{user['username']} edited an item", "message": f"{lst['name']}: {updated['text']}", "action_url": f"/list/{item['list_id']}"},
+                idempotency_key=f"item-edit-{item_id}-{iso(now_utc())[:13]}",
+            )
     return updated
 
 
@@ -834,6 +847,12 @@ async def delete_item(item_id: str, user: dict = Depends(current_user)):
     if not lst:
         raise HTTPException(403, "Not allowed")
     sb.table("list_items").delete().eq("id", item_id).execute()
+    if lst.get("shared_with") and user.get("partner_id"):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={"title": f"{user['username']} removed an item", "message": f"{lst['name']}: {item['text']}", "action_url": f"/list/{item['list_id']}"},
+            idempotency_key=f"item-delete-{item_id}",
+        )
     return {"ok": True}
 
 
@@ -1219,34 +1238,64 @@ async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)
 
 
 # ======================= DAILY QUOTE =======================
+# In-memory cache: { "user_id:YYYY-MM-DD": {"text": ..., "author": ...} }
+# Clears on server restart (acceptable — one extra LLM call per deploy per user).
+_quote_cache: dict[str, dict] = {}
+
+FALLBACK_QUOTES = [
+    ("In the middle of every difficulty lies opportunity.", "Albert Einstein"),
+    ("You do not find the happy life. You make it.", "Camilla Eyring Kimball"),
+    ("The purpose of life is to live it, to taste experience to the utmost.", "Eleanor Roosevelt"),
+    ("We know what we are, but know not what we may be.", "William Shakespeare"),
+    ("It does not matter how slowly you go as long as you do not stop.", "Confucius"),
+    ("You can never cross the ocean unless you have the courage to lose sight of the shore.", "André Gide"),
+    ("Life is what happens when you're busy making other plans.", "John Lennon"),
+    ("In three words I can sum up everything I've learned about life: it goes on.", "Robert Frost"),
+    ("To love and be loved is to feel the sun from both sides.", "David Viscott"),
+    ("The best time to plant a tree was 20 years ago. The second best time is now.", "Chinese Proverb"),
+]
+
 @api_router.get("/quote/today")
 async def get_today_quote(user: dict = Depends(current_user)):
     today = today_quote_date()
     first_name = _first_name(user)
-    cached = sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data
-    if cached:
-        row = cached[0]
-        row["first_name"] = first_name
-        return row
+    cache_key = f"{user['id']}:{today}"
 
-    quote_text = f"{first_name}, begin with gentleness — the day will meet you where you are."
-    author = "Tandem"
+    if cache_key in _quote_cache:
+        return {**_quote_cache[cache_key], "first_name": first_name}
+
+    import random
+    fallback_text, fallback_author = random.choice(FALLBACK_QUOTES)
+    quote_text, author = fallback_text, fallback_author
+
     try:
         ac = anthropic.AsyncAnthropicBedrock(
             aws_access_key=AWS_ACCESS_KEY_ID,
             aws_secret_key=AWS_SECRET_ACCESS_KEY,
             aws_region=AWS_REGION,
         )
+        # Rotate source category daily so quotes feel varied
+        categories = [
+            "stoic philosophers (Marcus Aurelius, Epictetus, Seneca)",
+            "modern writers and authors (Maya Angelou, Toni Morrison, Hemingway, Baldwin)",
+            "scientists and thinkers (Einstein, Feynman, Sagan, Curie)",
+            "poets (Rumi, Mary Oliver, Rilke, Whitman)",
+            "world leaders and activists (Mandela, MLK, Roosevelt, Gandhi)",
+            "artists and creatives (Picasso, O'Keeffe, da Vinci, Frida Kahlo)",
+            "comedians and entertainers (Twain, Wilde, Chaplin, Carlin)",
+            "entrepreneurs and innovators (Jobs, Winfrey, Bezos, Musk)",
+        ]
+        category = categories[hash(cache_key) % len(categories)]
         response = await ac.messages.create(
             model="arn:aws:bedrock:us-west-2:598451516178:inference-profile/global.anthropic.claude-sonnet-4-6",
-            max_tokens=128,
+            max_tokens=160,
             system=(
-                "You are a thoughtful, warm life-quote generator for Tandem, a couple companion app. "
-                "Generate ONE original short life quote (max 25 words). "
-                "Make it feel personal — you may use the person's first name naturally once if it fits. "
-                "Tone: calm, encouraging, partnership-aware (not romantic cliché). "
-                "Then a short author tag (use 'Tandem' if you wrote it). "
-                "Respond as exactly two lines:\nLine1: the quote (no quotes around it)\nLine2: — author"
+                "You are a quote curator for Tandem, a couple companion app. "
+                f"Pick ONE real, well-known life quote from {category}. "
+                "The quote should feel meaningful and universal — about life, love, growth, courage, or relationships. "
+                "Use the actual quote verbatim as it was said or written. Vary length naturally — some quotes are short, some longer. "
+                "Do NOT generate original quotes. Do NOT use romantic clichés. "
+                "Respond as exactly two lines:\nLine1: the quote (no quotation marks)\nLine2: — Firstname Lastname"
             ),
             messages=[{"role": "user", "content": f"Today's quote for {first_name}."}],
         )
@@ -1255,17 +1304,19 @@ async def get_today_quote(user: dict = Depends(current_user)):
             lines = [l.strip() for l in full.split("\n") if l.strip()]
             if lines:
                 quote_text = lines[0].strip().strip('"').strip("'")[:280]
-                if len(lines) > 1:
-                    author = lines[1].lstrip("—-– ").strip()[:40] or "Tandem"
+                author = lines[1].lstrip("—-– ").strip()[:40] or "Tandem" if len(lines) > 1 else "Tandem"
     except Exception as e:
         logger.warning(f"LLM quote failed: {e}")
 
-    sb.table("quotes").insert({
-        "user_id": user["id"], "date": today, "text": quote_text, "author": author,
-    }).execute()
-    row = sb.table("quotes").select("*").eq("user_id", user["id"]).eq("date", today).limit(1).execute().data[0]
-    row["first_name"] = first_name
-    return row
+    result = {"text": quote_text, "author": author}
+    _quote_cache[cache_key] = result
+
+    # Evict stale keys (yesterday and older) to prevent unbounded growth
+    for k in list(_quote_cache.keys()):
+        if not k.endswith(today):
+            del _quote_cache[k]
+
+    return {**result, "first_name": first_name}
 
 
 # ======================= DATE NIGHT PLANNER =======================
