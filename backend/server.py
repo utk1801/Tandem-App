@@ -152,14 +152,10 @@ async def send_push(recipients: List[str], data: dict, idempotency_key: Optional
             for i, resp in enumerate(result.responses):
                 if not resp.success:
                     err = resp.exception
-                    logger.warning(f"Push failed for token[{i}]: {err}")
-                    # registration-not-found and invalid-registration = stale token, safe to delete
-                    if hasattr(err, 'code') and err.code in (
-                        'registration-token-not-registered',
-                        'invalid-registration-token',
-                        'messaging/registration-token-not-registered',
-                        'messaging/invalid-registration-token',
-                    ):
+                    err_str = str(err).lower()
+                    logger.warning(f"Push failed for token[{i}]: {err} (code={getattr(err, 'code', 'none')})")
+                    # Purge on any token validity error — match by string since FCM error codes vary
+                    if any(x in err_str for x in ('not a valid', 'not registered', 'invalid-registration', 'registration-token-not-registered')):
                         failed_tokens.append(tokens[i])
             if failed_tokens:
                 sb.table("push_tokens").delete().in_("device_token", failed_tokens).execute()
@@ -1248,11 +1244,13 @@ async def delete_event(eid: str, user: dict = Depends(current_user)):
 # ======================= PUSH REGISTRATION =======================
 @api_router.post("/register-push", status_code=201)
 async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)):
-    # Upsert by device_token so reinstall replaces the row cleanly.
-    sb.table("push_tokens").upsert(
+    # Delete any old tokens for this user+platform, then insert fresh token.
+    # Prevents stale tokens accumulating when Expo generates a new token after reinstall/FCM refresh.
+    sb.table("push_tokens").delete().eq("user_id", user["id"]).eq("platform", req.platform).execute()
+    sb.table("push_tokens").insert(
         {"user_id": user["id"], "platform": req.platform, "device_token": req.device_token},
-        on_conflict="device_token",
     ).execute()
+    logger.info(f"[push-register] user={user['id']} platform={req.platform} token={req.device_token[:20]}...")
     return {"status": "registered"}
 
 
