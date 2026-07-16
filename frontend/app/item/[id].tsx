@@ -15,7 +15,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { formatDue } from "@/src/components/ReminderPicker";
@@ -49,6 +50,7 @@ type Comment = {
 };
 
 export default function ItemDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
@@ -105,6 +107,52 @@ export default function ItemDetailScreen() {
       setComments((prev) => prev.filter((c) => c.id !== comment.id));
     });
   };
+
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, gap: spacing.md },
+  header: {
+    paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center",
+  },
+  kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, textTransform: "uppercase", letterSpacing: 0.8 },
+  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.sm },
+  body: { padding: spacing.xl, gap: spacing.lg, paddingBottom: spacing.xxxl },
+  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
+  badge: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onBrandPrimary, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill, overflow: "hidden", textTransform: "capitalize" },
+  badgeDone: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.success, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill },
+  meta: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
+  block: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.lg, backgroundColor: colors.surfaceSecondary, borderRadius: radius.md },
+  blockText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+  linkCard: { flexDirection: "row", gap: spacing.md, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, alignItems: "flex-start" },
+  linkText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.brand },
+  image: { width: "100%", height: 240, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary },
+  secondaryBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingVertical: 14, alignItems: "center" },
+  secondaryBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: colors.onSurface },
+  commentsSection: { gap: spacing.md, marginTop: spacing.md },
+  sectionTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  commentRow: { flexDirection: "row", gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, alignItems: "flex-start" },
+  commentMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: 4 },
+  commentBody: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface },
+  commentComposer: {
+    flexDirection: "row", alignItems: "flex-end", gap: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface,
+    paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.md,
+  },
+  commentInput: {
+    flex: 1, minHeight: 44, maxHeight: 100,
+    fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  commentSend: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: colors.brand, alignItems: "center", justifyContent: "center",
+  },
+  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
+  link: { fontFamily: fonts.bodyMedium, color: colors.brand },
+});
 
   if (loading) {
     return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
@@ -208,49 +256,3 @@ export default function ItemDetailScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, gap: spacing.md },
-  header: {
-    paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md,
-    borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center",
-  },
-  kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, textTransform: "uppercase", letterSpacing: 0.8 },
-  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.sm },
-  body: { padding: spacing.xl, gap: spacing.lg, paddingBottom: spacing.xxxl },
-  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
-  badge: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onBrandPrimary, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill, overflow: "hidden", textTransform: "capitalize" },
-  badgeDone: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.success, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill },
-  meta: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
-  block: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.lg, backgroundColor: colors.surfaceSecondary, borderRadius: radius.md },
-  blockText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  linkCard: { flexDirection: "row", gap: spacing.md, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, alignItems: "flex-start" },
-  linkText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.brand },
-  image: { width: "100%", height: 240, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary },
-  secondaryBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingVertical: 14, alignItems: "center" },
-  secondaryBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: colors.onSurface },
-  commentsSection: { gap: spacing.md, marginTop: spacing.md },
-  sectionTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  commentRow: { flexDirection: "row", gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, alignItems: "flex-start" },
-  commentMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: 4 },
-  commentBody: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface },
-  commentComposer: {
-    flexDirection: "row", alignItems: "flex-end", gap: spacing.sm,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface,
-    paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.md,
-  },
-  commentInput: {
-    flex: 1, minHeight: 44, maxHeight: 100,
-    fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface,
-    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-  },
-  commentSend: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.brand, alignItems: "center", justifyContent: "center",
-  },
-  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
-  link: { fontFamily: fonts.bodyMedium, color: colors.brand },
-});

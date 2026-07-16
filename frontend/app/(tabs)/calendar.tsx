@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -9,9 +9,10 @@ import {
   Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useScrollToTop } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { ReminderPicker, type Reminder, dueDate } from "@/src/components/ReminderPicker";
@@ -39,6 +40,7 @@ function entryIcon(kind: CalendarEntry["kind"]) {
 }
 
 export default function CalendarScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { user } = useAuth();
   const [events, setEvents] = useState<EventItem[]>([]);
@@ -54,6 +56,8 @@ export default function CalendarScreen() {
   const [reminder, setReminder] = useState<Reminder>({ dueAt: null, remindMinutesBefore: null });
   const [recurrence, setRecurrence] = useState<Recurrence>(defaultRecurrence());
   const [share, setShare] = useState(false);
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
 
   const load = useCallback(async () => {
     try {
@@ -91,7 +95,11 @@ export default function CalendarScreen() {
     () => buildCalendarEntries(events, profiles, range.from, range.to),
     [events, profiles, range],
   );
-  const grouped = useMemo(() => groupEntriesByMonth(entries), [entries]);
+  const upcomingEntries = useMemo(() => {
+    const today = startOfDay(new Date());
+    return entries.filter((e) => parseYmd(e.date) >= today);
+  }, [entries]);
+  const grouped = useMemo(() => groupEntriesByMonth(upcomingEntries), [upcomingEntries]);
   const markedDates = useMemo(() => countEntriesByDate(entries), [entries]);
   const dayEntries = useMemo(
     () => (selectedDay ? entries.filter((e) => e.date === selectedDay) : []),
@@ -244,6 +252,53 @@ export default function CalendarScreen() {
     return entries.filter((e) => e.is_special && parseYmd(e.date) >= today).slice(0, 3);
   }, [entries]);
 
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  viewToggle: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
+  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  headerCta: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  scroll: { padding: spacing.xl, gap: spacing.xl },
+  specialBanner: { borderWidth: 1, borderColor: colors.brandTertiary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, backgroundColor: colors.brandTertiary },
+  specialLabel: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onBrandTertiary, letterSpacing: 0.5, textTransform: "uppercase" },
+  specialRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  specialText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onBrandTertiary },
+  specialWhen: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  dayPanelHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dayPanelTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface, flex: 1 },
+  dayEmpty: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
+  monthBlock: { gap: spacing.lg },
+  monthLabel: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.xs },
+  dayRow: { flexDirection: "row", gap: spacing.lg },
+  dayCol: { width: 48, alignItems: "center", paddingTop: 2 },
+  dayWeekday: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5, textTransform: "uppercase" },
+  dayNum: { fontFamily: fonts.display, fontSize: 30, color: colors.brand, lineHeight: 34 },
+  eventCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.surfaceSecondary, gap: spacing.xs },
+  eventCardSpecial: { borderColor: colors.brandTertiary, backgroundColor: colors.brandTertiary },
+  eventTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.sm },
+  eventTitleLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  eventTitle: { flex: 1, fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface, lineHeight: 20 },
+  eventTime: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
+  eventMetaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs },
+  metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  eventMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
+  eventNotes: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 18, marginTop: 2 },
+  empty: { padding: spacing.xxxl, alignItems: "center", gap: spacing.sm },
+  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
+  dayPanel: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.surfaceSecondary },
+  sheetTitleInput: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingVertical: spacing.sm },
+  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, textAlignVertical: "top" },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
+  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
+  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+});
+
   return (
     <View style={styles.root} testID="calendar-screen">
       <SafeAreaView edges={["top"]} style={styles.header}>
@@ -267,7 +322,7 @@ export default function CalendarScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {upcomingSpecial.length > 0 && (
           <View style={styles.specialBanner}>
             <Text style={styles.specialLabel}>Coming up for you</Text>
@@ -400,50 +455,3 @@ export default function CalendarScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  viewToggle: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
-  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  headerCta: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
-  scroll: { padding: spacing.xl, gap: spacing.xl },
-  specialBanner: { borderWidth: 1, borderColor: colors.brandTertiary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, backgroundColor: colors.brandTertiary },
-  specialLabel: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onBrandTertiary, letterSpacing: 0.5, textTransform: "uppercase" },
-  specialRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  specialText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onBrandTertiary },
-  specialWhen: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  dayPanelHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dayPanelTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface, flex: 1 },
-  dayEmpty: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
-  monthBlock: { gap: spacing.lg },
-  monthLabel: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.xs },
-  dayRow: { flexDirection: "row", gap: spacing.lg },
-  dayCol: { width: 48, alignItems: "center", paddingTop: 2 },
-  dayWeekday: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5, textTransform: "uppercase" },
-  dayNum: { fontFamily: fonts.display, fontSize: 30, color: colors.brand, lineHeight: 34 },
-  eventCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.surfaceSecondary, gap: spacing.xs },
-  eventCardSpecial: { borderColor: colors.brandTertiary, backgroundColor: colors.brandTertiary },
-  eventTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.sm },
-  eventTitleLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  eventTitle: { flex: 1, fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface, lineHeight: 20 },
-  eventTime: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
-  eventMetaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs },
-  metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  eventMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
-  eventNotes: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 18, marginTop: 2 },
-  empty: { padding: spacing.xxxl, alignItems: "center", gap: spacing.sm },
-  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
-  dayPanel: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.surfaceSecondary },
-  sheetTitleInput: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingVertical: spacing.sm },
-  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, textAlignVertical: "top" },
-  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
-  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
-  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-});

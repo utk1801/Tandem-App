@@ -12,7 +12,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { confirmDelete } from "@/src/utils/confirmDelete";
@@ -23,6 +24,7 @@ import { MarkdownEditor } from "@/src/components/MarkdownEditor";
 type Entry = { id: string; title: string; body: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 
 export default function JournalDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
@@ -74,6 +76,25 @@ export default function JournalDetailScreen() {
     });
   };
 
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center" },
+  headerTitle: { flex: 1, fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  body: { padding: spacing.xl, gap: spacing.lg },
+  date: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, textTransform: "uppercase", letterSpacing: 0.5 },
+  meta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
+  modalRoot: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
+  sheet: { backgroundColor: colors.surface, padding: spacing.xl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: "90%", gap: spacing.md },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.sm },
+  input: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md, textAlignVertical: "top" },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: spacing.sm },
+  primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
+  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+});
+
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
   if (!entry) return <SafeAreaView style={styles.center}><Text style={styles.muted}>Not found.</Text></SafeAreaView>;
 
@@ -122,22 +143,3 @@ export default function JournalDetailScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center" },
-  headerTitle: { flex: 1, fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  body: { padding: spacing.xl, gap: spacing.lg },
-  date: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, textTransform: "uppercase", letterSpacing: 0.5 },
-  meta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
-  modalRoot: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
-  sheet: { backgroundColor: colors.surface, padding: spacing.xl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: "90%", gap: spacing.md },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginBottom: spacing.sm },
-  input: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md, textAlignVertical: "top" },
-  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: spacing.sm },
-  primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
-  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-});

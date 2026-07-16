@@ -419,6 +419,24 @@ class RegisterPushReq(BaseModel):
     device_token: str
 
 
+class ReminderCreate(BaseModel):
+    title: str
+    notes: Optional[str] = ""
+    due_at: Optional[str] = None
+    remind_minutes_before: Optional[int] = None
+    recurrence: Optional[Recurrence] = None
+    shared_with_partner: bool = False
+
+
+class ReminderUpdate(BaseModel):
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    due_at: Optional[str] = None
+    remind_minutes_before: Optional[int] = None
+    recurrence: Optional[Recurrence] = None
+    shared_with_partner: Optional[bool] = None
+
+
 class DateNightPlanReq(BaseModel):
     budget: str
     vibe: str
@@ -1295,6 +1313,73 @@ async def register_push(req: RegisterPushReq, user: dict = Depends(current_user)
     ).execute()
     logger.info(f"[push-register] user={user['id']} platform={req.platform} token={req.device_token[:20]}...")
     return {"status": "registered"}
+
+
+# ======================= REMINDERS =======================
+
+@api_router.get("/reminders")
+async def list_reminders(user: dict = Depends(current_user)):
+    rows = sb.table("reminders").select("*").eq("user_id", user["id"]).order("created_at").execute().data or []
+    return rows
+
+
+@api_router.post("/reminders", status_code=201)
+async def create_reminder(req: ReminderCreate, user: dict = Depends(current_user)):
+    payload = {
+        "user_id": user["id"],
+        "title": req.title.strip()[:200],
+        "notes": (req.notes or "").strip()[:1000],
+        "due_at": req.due_at,
+        "remind_minutes_before": req.remind_minutes_before,
+        "recurrence": req.recurrence.model_dump() if req.recurrence else {"type": "none"},
+        "shared_with_partner": req.shared_with_partner,
+    }
+    res = sb.table("reminders").insert(payload).execute()
+    item = res.data[0]
+    if req.shared_with_partner and user.get("partner_id"):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={"title": f"{user['username']} shared a reminder", "message": req.title, "action_url": "/reminders"},
+            idempotency_key=f"reminder-share-{item['id']}",
+        )
+    return item
+
+
+@api_router.patch("/reminders/{reminder_id}")
+async def update_reminder(reminder_id: str, req: ReminderUpdate, user: dict = Depends(current_user)):
+    existing = sb.table("reminders").select("*").eq("id", reminder_id).eq("user_id", user["id"]).limit(1).execute().data
+    if not existing:
+        raise HTTPException(404, "Reminder not found")
+    old = existing[0]
+    payload = {k: v for k, v in {
+        "title": req.title.strip()[:200] if req.title else None,
+        "notes": req.notes.strip()[:1000] if req.notes is not None else None,
+        "due_at": req.due_at,
+        "remind_minutes_before": req.remind_minutes_before,
+        "recurrence": req.recurrence.model_dump() if req.recurrence else None,
+        "shared_with_partner": req.shared_with_partner,
+    }.items() if v is not None}
+    if not payload:
+        return old
+    res = sb.table("reminders").update(payload).eq("id", reminder_id).execute()
+    item = res.data[0]
+    # Notify partner if newly shared or title changed while shared
+    newly_shared = req.shared_with_partner and not old.get("shared_with_partner")
+    if newly_shared and user.get("partner_id"):
+        await send_push(
+            recipients=[user["partner_id"]],
+            data={"title": f"{user['username']} shared a reminder", "message": item["title"], "action_url": "/reminders"},
+            idempotency_key=f"reminder-share-{item['id']}",
+        )
+    return item
+
+
+@api_router.delete("/reminders/{reminder_id}", status_code=204)
+async def delete_reminder(reminder_id: str, user: dict = Depends(current_user)):
+    existing = sb.table("reminders").select("id").eq("id", reminder_id).eq("user_id", user["id"]).limit(1).execute().data
+    if not existing:
+        raise HTTPException(404, "Reminder not found")
+    sb.table("reminders").delete().eq("id", reminder_id).execute()
 
 
 # ======================= DAILY QUOTE =======================

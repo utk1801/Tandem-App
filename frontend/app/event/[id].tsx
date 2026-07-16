@@ -12,7 +12,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { ReminderPicker, type Reminder, dueDate } from "@/src/components/ReminderPicker";
@@ -38,6 +39,7 @@ type EventItem = {
 };
 
 export default function EventDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
@@ -112,6 +114,26 @@ export default function EventDetailScreen() {
     });
   };
 
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center" },
+  kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, textTransform: "uppercase" },
+  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  body: { padding: spacing.xl, gap: spacing.lg },
+  when: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.brand },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  bodyText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+  notes: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, lineHeight: 24 },
+  meta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  input: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
+  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+});
+
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
   if (!ev) {
     return (
@@ -177,23 +199,3 @@ export default function EventDetailScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center" },
-  kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, textTransform: "uppercase" },
-  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  body: { padding: spacing.xl, gap: spacing.lg },
-  when: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.brand },
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  bodyText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  notes: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, lineHeight: 24 },
-  meta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  input: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md },
-  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
-  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-});

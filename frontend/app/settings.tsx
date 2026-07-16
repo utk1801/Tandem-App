@@ -5,8 +5,8 @@ import { Feather } from "@expo/vector-icons";
 import { useTheme, type ThemeColors } from "@/src/contexts/ThemeContext";
 
 const PRESETS = [
-  "#A64D3C", "#4F7359", "#60748C", "#D9933D", "#7A3528", "#2C2825",
-  "#FDFCF9", "#F2EFE8", "#1C1917", "#44403C", "#E6E1D6", "#FFFFFF",
+  "#0E9B9B", "#A64D3C", "#4F7359", "#60748C", "#D9933D", "#8B5CF6",
+  "#E11D48", "#0369A1", "#7C3AED", "#059669", "#B45309", "#1C1917",
 ];
 
 function ColorField({

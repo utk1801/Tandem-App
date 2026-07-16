@@ -13,7 +13,8 @@ const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { confirmDelete } from "@/src/utils/confirmDelete";
@@ -24,6 +25,7 @@ import { MarkdownEditor } from "@/src/components/MarkdownEditor";
 type Thought = { id: string; text: string; mood?: string; created_at: string; owner_id: string; owner_username: string; shared: boolean };
 
 export default function ThoughtDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
@@ -70,6 +72,23 @@ export default function ThoughtDetailScreen() {
       router.back();
     });
   };
+
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center" },
+  headerTitle: { flex: 1, fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  body: { padding: spacing.xl, gap: spacing.lg },
+  meta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
+  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+  moodChip: { paddingHorizontal: spacing.lg, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  moodChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  moodText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
+});
 
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
   if (!thought) return <SafeAreaView style={styles.center}><Text style={styles.muted}>Not found.</Text></SafeAreaView>;
@@ -123,20 +142,3 @@ export default function ThoughtDetailScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center" },
-  headerTitle: { flex: 1, fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  body: { padding: spacing.xl, gap: spacing.lg },
-  meta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  muted: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  primary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
-  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-  moodChip: { paddingHorizontal: spacing.lg, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  moodChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  moodText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
-});

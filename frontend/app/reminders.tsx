@@ -12,7 +12,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { ReminderPicker, type Reminder, dueDate, formatDue } from "@/src/components/ReminderPicker";
 import { RecurrencePicker, defaultRecurrence } from "@/src/components/RecurrencePicker";
 import type { Recurrence } from "@/src/types/calendar";
@@ -20,9 +21,7 @@ import { scheduleReminder, cancelReminder, ensurePermissions } from "@/src/notif
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { SwipeableRow } from "@/src/components/SwipeableRow";
 import { confirmDelete } from "@/src/utils/confirmDelete";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const STORE_KEY = "tandem_reminders_v1";
+import { api } from "@/src/api";
 
 type ReminderItem = {
   id: string;
@@ -34,21 +33,16 @@ type ReminderItem = {
   sharedWithPartner?: boolean;
 };
 
-function genId() {
-  return `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function loadReminders(): Promise<ReminderItem[]> {
-  try {
-    const raw = await AsyncStorage.getItem(STORE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveReminders(items: ReminderItem[]): Promise<void> {
-  await AsyncStorage.setItem(STORE_KEY, JSON.stringify(items));
+function toLocal(row: Record<string, unknown>): ReminderItem {
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    notes: (row.notes as string) ?? "",
+    dueAt: (row.due_at as string | null) ?? null,
+    remindMinutesBefore: (row.remind_minutes_before as number | null) ?? null,
+    recurrence: (row.recurrence as Recurrence) ?? { type: "none" },
+    sharedWithPartner: (row.shared_with_partner as boolean) ?? false,
+  };
 }
 
 const REMIND_LABELS: Record<number, string> = {
@@ -66,6 +60,7 @@ function remindLabel(minutes: number | null): string | null {
 }
 
 export default function RemindersScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { user } = useAuth();
   const [items, setItems] = useState<ReminderItem[]>([]);
@@ -78,7 +73,7 @@ export default function RemindersScreen() {
   const [sharedWithPartner, setSharedWithPartner] = useState(false);
 
   useEffect(() => {
-    loadReminders().then(setItems);
+    api.get("/reminders").then((r) => setItems(r.data.map(toLocal))).catch(() => {});
   }, []);
 
   const openCreate = () => {
@@ -129,35 +124,24 @@ export default function RemindersScreen() {
       );
     };
 
+    const body = {
+      title: title.trim(),
+      notes: notes.trim(),
+      due_at: reminder.dueAt,
+      remind_minutes_before: reminder.remindMinutesBefore,
+      recurrence,
+      shared_with_partner: sharedWithPartner,
+    };
     if (editingId) {
-      const updated: ReminderItem = {
-        id: editingId,
-        title: title.trim(),
-        notes: notes.trim(),
-        dueAt: reminder.dueAt,
-        remindMinutesBefore: reminder.remindMinutesBefore,
-        recurrence,
-        sharedWithPartner,
-      };
+      const res = await api.patch(`/reminders/${editingId}`, body);
+      const updated = toLocal(res.data);
       await scheduleItem(updated);
-      const next = items.map((x) => (x.id === editingId ? updated : x));
-      setItems(next);
-      await saveReminders(next);
+      setItems((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
     } else {
-      const id = genId();
-      const item: ReminderItem = {
-        id,
-        title: title.trim(),
-        notes: notes.trim(),
-        dueAt: reminder.dueAt,
-        remindMinutesBefore: reminder.remindMinutesBefore,
-        recurrence,
-        sharedWithPartner,
-      };
+      const res = await api.post("/reminders", body);
+      const item = toLocal(res.data);
       await scheduleItem(item);
-      const next = [...items, item];
-      setItems(next);
-      await saveReminders(next);
+      setItems((prev) => [...prev, item]);
     }
     closeSheet();
   };
@@ -168,11 +152,10 @@ export default function RemindersScreen() {
       await Promise.all(
         Array.from({ length: 10 }, (_, i) => cancelReminder(i === 0 ? baseKey : `${baseKey}:${i}`))
       );
-      const next = items.filter((x) => x.id !== item.id);
-      setItems(next);
-      await saveReminders(next);
+      await api.delete(`/reminders/${item.id}`).catch(() => {});
+      setItems((prev) => prev.filter((x) => x.id !== item.id));
     });
-  }, [items]);
+  }, []);
 
   const now = new Date();
   const upcoming = items
@@ -189,6 +172,142 @@ export default function RemindersScreen() {
     const f = _fireDate(x);
     return !f || f <= now;
   });
+
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  header: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  headerCenter: { flex: 1 },
+  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
+  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  addBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scroll: { padding: spacing.xl, gap: spacing.xl },
+  empty: {
+    marginTop: spacing.xxxl,
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyHint: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  emptyCta: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+  },
+  emptyCtaText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: "#fff" },
+  group: { gap: spacing.md },
+  groupLabel: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceSecondary,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  groupList: { gap: spacing.sm },
+  card: {
+    flexDirection: "row",
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "flex-start",
+  },
+  cardPast: { opacity: 0.55 },
+  cardLeft: { paddingTop: 2 },
+  cardBody: { flex: 1, gap: 4 },
+  cardTitle: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    lineHeight: 22,
+  },
+  cardTitlePast: { color: colors.onSurfaceSecondary },
+  cardNotes: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceSecondary,
+    lineHeight: 18,
+  },
+  cardMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
+  cardMetaText: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  cardMetaDot: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  cardMetaPast: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  sheetTitle: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.xxl,
+    color: colors.onSurface,
+  },
+  sheetTitleInput: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.xl,
+    color: colors.onSurface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderStrong,
+    paddingVertical: spacing.sm,
+  },
+  sheetInput: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    textAlignVertical: "top",
+  },
+  sheetPrimary: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: spacing.sm,
+  },
+  sheetPrimaryText: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: fontSize.lg,
+    color: "#fff",
+  },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
+  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+});
 
   return (
     <View style={styles.root}>
@@ -356,6 +475,20 @@ function ReminderCard({
   onEdit: (item: ReminderItem) => void;
   onDelete: (item: ReminderItem) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = StyleSheet.create({
+    card: { flexDirection: "row", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.surfaceSecondary, alignItems: "flex-start" },
+    cardPast: { opacity: 0.55 },
+    cardLeft: { paddingTop: 2 },
+    cardBody: { flex: 1, gap: 4 },
+    cardTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface, lineHeight: 22 },
+    cardTitlePast: { color: colors.onSurfaceSecondary },
+    cardNotes: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 18 },
+    cardMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
+    cardMetaText: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand },
+    cardMetaDot: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+    cardMetaPast: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  });
   const fireAt = _fireDate(item);
   const now = new Date();
   const isPast = fireAt ? fireAt <= now : false;
@@ -420,139 +553,3 @@ function ReminderCard({
     </SwipeableRow>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  header: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerCenter: { flex: 1 },
-  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
-  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scroll: { padding: spacing.xl, gap: spacing.xl },
-  empty: {
-    marginTop: spacing.xxxl,
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-  },
-  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  emptyHint: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceSecondary,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  emptyCta: {
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brand,
-  },
-  emptyCtaText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: "#fff" },
-  group: { gap: spacing.md },
-  groupLabel: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceSecondary,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
-  groupList: { gap: spacing.sm },
-  card: {
-    flexDirection: "row",
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
-    alignItems: "flex-start",
-  },
-  cardPast: { opacity: 0.55 },
-  cardLeft: { paddingTop: 2 },
-  cardBody: { flex: 1, gap: 4 },
-  cardTitle: {
-    fontFamily: fonts.display,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    lineHeight: 22,
-  },
-  cardTitlePast: { color: colors.onSurfaceSecondary },
-  cardNotes: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceSecondary,
-    lineHeight: 18,
-  },
-  cardMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
-  cardMetaText: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.sm,
-    color: colors.brand,
-  },
-  cardMetaDot: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  cardMetaPast: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  sheetTitle: {
-    fontFamily: fonts.display,
-    fontSize: fontSize.xxl,
-    color: colors.onSurface,
-  },
-  sheetTitleInput: {
-    fontFamily: fonts.display,
-    fontSize: fontSize.xl,
-    color: colors.onSurface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderStrong,
-    paddingVertical: spacing.sm,
-  },
-  sheetInput: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    textAlignVertical: "top",
-  },
-  sheetPrimary: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: spacing.sm,
-  },
-  sheetPrimaryText: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: fontSize.lg,
-    color: "#fff",
-  },
-  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
-  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-});

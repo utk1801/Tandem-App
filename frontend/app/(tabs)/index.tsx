@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -10,11 +10,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import type { CalendarEntry, EventItem, ProfileDates } from "@/src/types/calendar";
@@ -27,9 +29,13 @@ type Quote = { text: string; author: string; first_name?: string };
 type Routine = { steps: { id: string; text: string; order: number }[]; completed_today: string[] };
 
 export default function Today() {
+  const { colors } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
   const [quote, setQuote] = useState<Quote | null>(null);
+  const quoteCacheRef = useRef<{ date: string; quote: Quote } | null>(null);
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
   const [routine, setRoutine] = useState<Routine | null>(null);
   const [upcoming, setUpcoming] = useState<CalendarEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,14 +43,19 @@ export default function Today() {
 
   const load = useCallback(async () => {
     try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const quotePromise = quoteCacheRef.current?.date === todayStr
+        ? Promise.resolve({ data: quoteCacheRef.current.quote })
+        : api.get("/quote/today");
       const [q, r, meRes, evRes, connRes] = await Promise.all([
-        api.get("/quote/today"),
+        quotePromise,
         api.get("/routine"),
         api.get("/auth/me"),
         api.get("/events"),
         api.get("/connection"),
       ]);
       setQuote(q.data);
+      if (q.data) quoteCacheRef.current = { date: todayStr, quote: q.data };
       setRoutine(r.data);
       const today = startOfDay(new Date());
       const horizon = new Date(today);
@@ -103,9 +114,119 @@ export default function Today() {
     }
   };
 
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  scroll: { paddingBottom: spacing.xl },
+  hero: {
+    height: 380,
+    backgroundColor: colors.surfaceInverse,
+    overflow: "hidden",
+    justifyContent: "space-between",
+  },
+  heroSafe: { paddingHorizontal: spacing.xl, paddingTop: spacing.md },
+  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  bellBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  greeting: { fontFamily: fonts.body, fontSize: fontSize.base, color: "rgba(253,252,249,0.85)" },
+  heroQuote: { padding: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
+  quoteText: {
+    fontFamily: fonts.display,
+    fontSize: 28,
+    lineHeight: 34,
+    color: "#FDFCF9",
+  },
+  quoteAuthor: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.base,
+    color: "rgba(253,252,249,0.75)",
+    letterSpacing: 0.5,
+  },
+  section: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, gap: spacing.lg },
+  sectionHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sectionTitle: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.xxl,
+    color: colors.onSurface,
+  },
+  emptyRoutine: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 20 },
+  routineList: { gap: spacing.sm },
+  routineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxOn: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  routineText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+  routineTextDone: { color: colors.onSurfaceTertiary, textDecorationLine: "line-through" },
+  upcomingList: { gap: spacing.sm },
+  upcomingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  upcomingCardSpecial: { borderColor: colors.brandTertiary, backgroundColor: colors.brandTertiary },
+  upcomingDateCol: { width: 90 },
+  upcomingWhen: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.3, textTransform: "uppercase" },
+  upcomingTime: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  upcomingTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  upcomingMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  dateNightCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.brandTertiary,
+    borderRadius: radius.lg,
+    backgroundColor: colors.brandTertiary,
+  },
+  dateNightLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  dateNightTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  dateNightHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, marginTop: 2 },
+});
+
   return (
     <View style={styles.root}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scroll}
         refreshControl={
           <RefreshControl
@@ -272,112 +393,3 @@ export default function Today() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  scroll: { paddingBottom: spacing.xl },
-  hero: {
-    height: 380,
-    backgroundColor: colors.surfaceInverse,
-    overflow: "hidden",
-    justifyContent: "space-between",
-  },
-  heroSafe: { paddingHorizontal: spacing.xl, paddingTop: spacing.md },
-  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  bellBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  greeting: { fontFamily: fonts.body, fontSize: fontSize.base, color: "rgba(253,252,249,0.85)" },
-  heroQuote: { padding: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
-  quoteText: {
-    fontFamily: fonts.display,
-    fontSize: 28,
-    lineHeight: 34,
-    color: "#FDFCF9",
-  },
-  quoteAuthor: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.base,
-    color: "rgba(253,252,249,0.75)",
-    letterSpacing: 0.5,
-  },
-  section: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, gap: spacing.lg },
-  sectionHead: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionTitle: {
-    fontFamily: fonts.display,
-    fontSize: fontSize.xxl,
-    color: colors.onSurface,
-  },
-  emptyRoutine: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceSecondary,
-  },
-  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 20 },
-  routineList: { gap: spacing.sm },
-  routineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: colors.borderStrong,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxOn: {
-    backgroundColor: colors.brand,
-    borderColor: colors.brand,
-  },
-  routineText: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  routineTextDone: { color: colors.onSurfaceTertiary, textDecorationLine: "line-through" },
-  upcomingList: { gap: spacing.sm },
-  upcomingCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceSecondary,
-  },
-  upcomingCardSpecial: { borderColor: colors.brandTertiary, backgroundColor: colors.brandTertiary },
-  upcomingDateCol: { width: 90 },
-  upcomingWhen: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.3, textTransform: "uppercase" },
-  upcomingTime: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  upcomingTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
-  upcomingMeta: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  dateNightCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.brandTertiary,
-    borderRadius: radius.lg,
-    backgroundColor: colors.brandTertiary,
-  },
-  dateNightLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  dateNightTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
-  dateNightHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, marginTop: 2 },
-});

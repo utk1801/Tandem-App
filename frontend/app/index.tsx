@@ -1,20 +1,11 @@
-import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { colors } from "@/src/theme";
+import { View, ActivityIndicator } from "react-native";
+import { useTheme } from "@/src/contexts/ThemeContext";
 
 export default function Index() {
-  // Gate handles redirection. Show splash spinner.
+  const { colors } = useTheme();
   return (
-    <View style={styles.container} testID="splash-screen">
+    <View style={{ flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }} testID="splash-screen">
       <ActivityIndicator color={colors.brand} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});

@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.quotes (
   date        DATE NOT NULL,
   text        TEXT NOT NULL,
   author      TEXT,
+  is_fallback BOOLEAN DEFAULT FALSE,
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (user_id, date)
 );
@@ -287,6 +288,24 @@ CREATE POLICY push_tokens_self ON public.push_tokens FOR ALL USING (user_id = au
 
 -- =============================================================================
 -- Auto-create a profile row on signup
+-- =============================================================================
+-- REMINDERS
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.reminders (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  title                  TEXT NOT NULL,
+  notes                  TEXT NOT NULL DEFAULT '',
+  due_at                 TIMESTAMPTZ,
+  remind_minutes_before  INTEGER,
+  recurrence             JSONB NOT NULL DEFAULT '{"type":"none"}'::JSONB,
+  shared_with_partner    BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS reminders_user_id_idx ON public.reminders(user_id);
+
 -- The frontend passes { username } via auth.signUp(options.data); this trigger
 -- copies it into public.profiles.
 -- =============================================================================
