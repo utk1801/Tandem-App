@@ -9,7 +9,8 @@ import {
   Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter, useScrollToTop } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { spacing, radius, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/contexts/ThemeContext";
