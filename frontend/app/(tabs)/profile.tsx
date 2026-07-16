@@ -12,7 +12,8 @@ import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
@@ -45,6 +46,7 @@ function getSpiritAnimal(userId: string) {
 }
 
 export default function Profile() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { user, signOut, refreshUser } = useAuth();
   const [partner, setPartner] = useState<any>(null);
@@ -120,6 +122,48 @@ export default function Profile() {
     } catch {/* ignore */}
   };
 
+
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
+  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  scroll: { padding: spacing.xl, gap: spacing.md },
+  card: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, backgroundColor: colors.surfaceSecondary },
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: "#fff" },
+  cardName: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  cardEmail: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  sectionTitle: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.8, textTransform: "uppercase", marginTop: spacing.lg },
+  statsCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.surfaceSecondary },
+  statsTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  help: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 20 },
+  partnerCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, backgroundColor: colors.brandTertiary },
+  partnerAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  partnerAvatarText: { fontFamily: fonts.display, fontSize: fontSize.xl, color: "#fff" },
+  actionRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  actionLabel: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+  codeCard: { borderWidth: 1, borderColor: colors.brand, borderRadius: radius.lg, padding: spacing.lg, alignItems: "center", gap: spacing.sm, backgroundColor: colors.brandTertiary },
+  codeLabel: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, letterSpacing: 0.8, textTransform: "uppercase" },
+  codeBig: { fontFamily: fonts.display, fontSize: 40, letterSpacing: 6, color: colors.onBrandTertiary },
+  shareBtn: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand },
+  shareText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.brand },
+  modalRoot: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
+  sheet: { backgroundColor: colors.surface, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, gap: spacing.md },
+  sheetHandle: { width: 40, height: 4, backgroundColor: colors.borderStrong, borderRadius: 2, alignSelf: "center" },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingVertical: spacing.md },
+  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
+  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+  error: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.error },
+  spiritContent: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.lg },
+  spiritEmoji: { fontSize: 72, lineHeight: 80 },
+  spiritTitle: { fontFamily: fonts.display, fontSize: 28, color: colors.onSurface, textAlign: "center" },
+  spiritTrait: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, textAlign: "center", lineHeight: 24 },
+  spiritHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: spacing.sm, textAlign: "center" },
+});
 
   return (
     <View style={styles.root} testID="profile-screen">
@@ -296,6 +340,19 @@ export default function Profile() {
 }
 
 function StatPill({ value, label, highlight }: { value: number; label: string; highlight?: boolean }) {
+  const { colors } = useTheme();
+  const statStyles = StyleSheet.create({
+    pill: {
+      flex: 1, minWidth: "30%", alignItems: "center", paddingVertical: spacing.md,
+      borderRadius: radius.md, backgroundColor: colors.surface,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    pillHighlight: { backgroundColor: colors.brand, borderColor: colors.brand },
+    value: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+    valueHighlight: { color: "#fff" },
+    label: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+    labelHighlight: { color: "rgba(255,255,255,0.8)" },
+  });
   return (
     <View style={[statStyles.pill, highlight && statStyles.pillHighlight]}>
       <Text style={[statStyles.value, highlight && statStyles.valueHighlight]}>{value}</Text>
@@ -304,57 +361,3 @@ function StatPill({ value, label, highlight }: { value: number; label: string; h
   );
 }
 
-const statStyles = StyleSheet.create({
-  pill: {
-    flex: 1, minWidth: "30%", alignItems: "center", paddingVertical: spacing.md,
-    borderRadius: radius.md, backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  pillHighlight: { backgroundColor: colors.brand, borderColor: colors.brand },
-  value: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  valueHighlight: { color: "#fff" },
-  label: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  labelHighlight: { color: "rgba(255,255,255,0.8)" },
-});
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
-  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
-  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  scroll: { padding: spacing.xl, gap: spacing.md },
-  card: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, backgroundColor: colors.surfaceSecondary },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: "#fff" },
-  cardName: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  cardEmail: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  sectionTitle: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.8, textTransform: "uppercase", marginTop: spacing.lg },
-  statsCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.surfaceSecondary },
-  statsTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  help: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, lineHeight: 20 },
-  partnerCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.lg, backgroundColor: colors.brandTertiary },
-  partnerAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
-  partnerAvatarText: { fontFamily: fonts.display, fontSize: fontSize.xl, color: "#fff" },
-  actionRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
-  actionLabel: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  codeCard: { borderWidth: 1, borderColor: colors.brand, borderRadius: radius.lg, padding: spacing.lg, alignItems: "center", gap: spacing.sm, backgroundColor: colors.brandTertiary },
-  codeLabel: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onBrandTertiary, letterSpacing: 0.8, textTransform: "uppercase" },
-  codeBig: { fontFamily: fonts.display, fontSize: 40, letterSpacing: 6, color: colors.onBrandTertiary },
-  shareBtn: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand },
-  shareText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.brand },
-  modalRoot: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
-  sheet: { backgroundColor: colors.surface, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, gap: spacing.md },
-  sheetHandle: { width: 40, height: 4, backgroundColor: colors.borderStrong, borderRadius: 2, alignSelf: "center" },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingVertical: spacing.md },
-  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center" },
-  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-  error: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.error },
-  spiritContent: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.lg },
-  spiritEmoji: { fontSize: 72, lineHeight: 80 },
-  spiritTitle: { fontFamily: fonts.display, fontSize: 28, color: colors.onSurface, textAlign: "center" },
-  spiritTrait: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, textAlign: "center", lineHeight: 24 },
-  spiritHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: spacing.sm, textAlign: "center" },
-});

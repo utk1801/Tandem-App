@@ -1,7 +1,6 @@
 // Push registration.
-// iOS (free Apple dev account): local notifications only — APNs entitlement
-// requires a paid account, so remote push is skipped entirely on iOS.
-// Android: registers Expo push token with the backend for remote push.
+// Uses Expo Push API so both iOS (via Expo Go) and Android work without
+// a paid Apple developer account. Standalone iOS builds still need APNs entitlement.
 
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
@@ -11,8 +10,6 @@ import { api } from "@/src/api";
 
 export async function registerForPush(_userId: string): Promise<boolean> {
   if (Platform.OS === "web") return false;
-  // Free Apple dev account has no APNs entitlement — skip remote push on iOS.
-  if (Platform.OS === "ios") return false;
   if (!Device.isDevice) return false;
 
   try {
@@ -21,11 +18,13 @@ export async function registerForPush(_userId: string): Promise<boolean> {
     });
     if (!perm.granted) return false;
 
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "Default",
-      importance: Notifications.AndroidImportance.MAX,
-      sound: "default",
-    });
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "Default",
+        importance: Notifications.AndroidImportance.MAX,
+        sound: "default",
+      });
+    }
 
     const projectId =
       Constants?.expoConfig?.extra?.eas?.projectId ??
@@ -37,7 +36,7 @@ export async function registerForPush(_userId: string): Promise<boolean> {
     if (!expoPushToken) return false;
 
     await api.post("/register-push", {
-      platform: "android",
+      platform: Platform.OS,
       device_token: expoPushToken,
     });
     return true;

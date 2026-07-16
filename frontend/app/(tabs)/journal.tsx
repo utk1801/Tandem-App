@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { confirmDelete } from "@/src/utils/confirmDelete";
@@ -26,6 +28,7 @@ type JournalEntry = { id: string; title: string; body: string; mood?: string; cr
 const MOODS = ["calm", "happy", "tired", "anxious", "grateful", "reflective"];
 
 export default function JournalScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { user } = useAuth();
   const [tab, setTab] = useState<"thoughts" | "journal">("journal");
@@ -37,6 +40,8 @@ export default function JournalScreen() {
   const [title, setTitle] = useState("");
   const [mood, setMood] = useState<string | undefined>();
   const [share, setShare] = useState(false);
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
 
   const load = useCallback(async () => {
     try {
@@ -108,6 +113,61 @@ export default function JournalScreen() {
     });
   };
 
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  header: {
+    paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md,
+    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
+  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  headerCta: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  segment: { flexDirection: "row", marginTop: spacing.lg, backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4 },
+  segItem: { flex: 1, paddingVertical: 10, borderRadius: radius.pill, alignItems: "center" },
+  segItemOn: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  segText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
+  segTextOn: { color: colors.onSurface },
+  scroll: { padding: spacing.xl, gap: spacing.md },
+  thoughtsGrid: { gap: spacing.md },
+  thoughtCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.lg, backgroundColor: colors.surfaceSecondary, gap: spacing.sm },
+  thoughtText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, lineHeight: 22 },
+  thoughtMeta: { flexDirection: "row", justifyContent: "space-between" },
+  metaSmall: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, letterSpacing: 0.3 },
+  journalList: { gap: spacing.lg },
+  journalCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.sm, backgroundColor: colors.surface },
+  journalDate: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5, textTransform: "uppercase" },
+  journalTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, lineHeight: 28 },
+  journalBody: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, lineHeight: 22 },
+  empty: { padding: spacing.xxxl, alignItems: "center", gap: spacing.sm },
+  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
+  modalRoot: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
+  sheet: { backgroundColor: colors.surface, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, gap: spacing.md },
+  sheetHandle: { width: 40, height: 4, backgroundColor: colors.borderStrong, borderRadius: 2, alignSelf: "center" },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  sheetTitleInput: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingVertical: spacing.sm },
+  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, minHeight: 80, textAlignVertical: "top" },
+  moodChip: { paddingHorizontal: spacing.lg, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  moodChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  moodText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
+  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
+  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
+  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
+  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+});
+
+  function Empty({ title, hint }: { title: string; hint: string }) {
+    return (
+      <View style={styles.empty}>
+        <Feather name="edit-3" size={28} color={colors.onSurfaceTertiary} />
+        <Text style={styles.emptyTitle}>{title}</Text>
+        <Text style={styles.emptyHint}>{hint}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root} testID="journal-screen">
       <SafeAreaView edges={["top"]} style={styles.header}>
@@ -142,7 +202,7 @@ export default function JournalScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {tab === "thoughts" ? (
           thoughts.length === 0 ? (
             <Empty title="A blank page" hint="Capture a fleeting thought before it slips away." />
@@ -252,57 +312,3 @@ export default function JournalScreen() {
   );
 }
 
-function Empty({ title, hint }: { title: string; hint: string }) {
-  return (
-    <View style={styles.empty}>
-      <Feather name="edit-3" size={28} color={colors.onSurfaceTertiary} />
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptyHint}>{hint}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  header: {
-    paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md,
-    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  heading: { fontFamily: fonts.display, fontSize: fontSize.xxxl, color: colors.onSurface },
-  subhead: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  headerCta: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
-  segment: { flexDirection: "row", marginTop: spacing.lg, backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4 },
-  segItem: { flex: 1, paddingVertical: 10, borderRadius: radius.pill, alignItems: "center" },
-  segItemOn: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  segText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
-  segTextOn: { color: colors.onSurface },
-  scroll: { padding: spacing.xl, gap: spacing.md },
-  thoughtsGrid: { gap: spacing.md },
-  thoughtCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.lg, backgroundColor: colors.surfaceSecondary, gap: spacing.sm },
-  thoughtText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, lineHeight: 22 },
-  thoughtMeta: { flexDirection: "row", justifyContent: "space-between" },
-  metaSmall: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, letterSpacing: 0.3 },
-  journalList: { gap: spacing.lg },
-  journalCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.sm, backgroundColor: colors.surface },
-  journalDate: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5, textTransform: "uppercase" },
-  journalTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, lineHeight: 28 },
-  journalBody: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary, lineHeight: 22 },
-  empty: { padding: spacing.xxxl, alignItems: "center", gap: spacing.sm },
-  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
-  modalRoot: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
-  sheet: { backgroundColor: colors.surface, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, gap: spacing.md },
-  sheetHandle: { width: 40, height: 4, backgroundColor: colors.borderStrong, borderRadius: 2, alignSelf: "center" },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  sheetTitleInput: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingVertical: spacing.sm },
-  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, minHeight: 80, textAlignVertical: "top" },
-  moodChip: { paddingHorizontal: spacing.lg, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  moodChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  moodText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
-  shareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: spacing.xs },
-  shareLabel: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface },
-  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.sm },
-  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-});

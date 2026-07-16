@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.quotes (
   date        DATE NOT NULL,
   text        TEXT NOT NULL,
   author      TEXT,
+  is_fallback BOOLEAN DEFAULT FALSE,
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (user_id, date)
 );

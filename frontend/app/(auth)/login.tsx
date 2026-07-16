@@ -13,10 +13,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { useAuth } from "@/src/contexts/AuthContext";
 
 export default function Login() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
@@ -35,6 +37,40 @@ export default function Login() {
       setBusy(false);
     }
   };
+
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  scroll: { padding: spacing.xl, gap: spacing.lg },
+  title: {
+    fontFamily: fonts.display,
+    fontSize: fontSize.xxxl,
+    color: colors.onSurface,
+    marginTop: spacing.lg,
+  },
+  subtitle: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary },
+  field: { gap: spacing.xs },
+  label: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5, textTransform: "uppercase" },
+  input: {
+    fontFamily: fonts.body,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderStrong,
+    paddingVertical: spacing.md,
+  },
+  primary: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: spacing.md,
+  },
+  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff", fontWeight: "500" },
+  switch: { alignItems: "center", paddingVertical: spacing.md },
+  switchText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
+  switchAccent: { color: colors.brand, fontFamily: fonts.bodyMedium },
+  error: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.error },
+});
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]} testID="login-screen">
@@ -102,37 +138,3 @@ export default function Login() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  scroll: { padding: spacing.xl, gap: spacing.lg },
-  title: {
-    fontFamily: fonts.display,
-    fontSize: fontSize.xxxl,
-    color: colors.onSurface,
-    marginTop: spacing.lg,
-  },
-  subtitle: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurfaceSecondary },
-  field: { gap: spacing.xs },
-  label: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5, textTransform: "uppercase" },
-  input: {
-    fontFamily: fonts.body,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderStrong,
-    paddingVertical: spacing.md,
-  },
-  primary: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: spacing.md,
-  },
-  primaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff", fontWeight: "500" },
-  switch: { alignItems: "center", paddingVertical: spacing.md },
-  switchText: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary },
-  switchAccent: { color: colors.brand, fontFamily: fonts.bodyMedium },
-  error: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.error },
-});

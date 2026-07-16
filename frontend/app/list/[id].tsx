@@ -13,13 +13,15 @@ import {
   Image,
   Switch,
   RefreshControl,
+  Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
-import { colors, spacing, radius, fonts, fontSize } from "@/src/theme";
+import { spacing, radius, fonts, fontSize } from "@/src/theme";
+import { useTheme } from "@/src/contexts/ThemeContext";
 import { api, uploadImage } from "@/src/api";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { ReminderPicker, type Reminder, formatDue, dueDate } from "@/src/components/ReminderPicker";
@@ -50,6 +52,7 @@ type Detail = {
 };
 
 export default function ListDetail() {
+  const { colors } = useTheme();
   const { id, editItem } = useLocalSearchParams<{ id: string; editItem?: string }>();
   const router = useRouter();
   const { user } = useAuth();
@@ -264,6 +267,57 @@ export default function ListDetail() {
     setRenameVisible(false);
   };
 
+  const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
+  empty: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center", backgroundColor: colors.surface },
+  kickerRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.8, textTransform: "uppercase" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#3DBF7A", marginBottom: 1 },
+  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginTop: 2 },
+  shareRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceSecondary },
+  shareLabel: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurface },
+  shareHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  list: { padding: spacing.xl, gap: spacing.sm, flexGrow: 1 },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  checkboxWrap: { padding: 2 },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
+  checkboxOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  rowText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, flex: 1 },
+  rowTextDone: { color: colors.onSurfaceTertiary, textDecorationLine: "line-through" },
+  dueRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  dueText: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
+  qtyTag: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.surfaceSecondary },
+  instacartBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.pill, backgroundColor: "#43B02A" },
+  instacartBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: "#fff" },
+  emptyBlock: { padding: spacing.xxxl, alignItems: "center", gap: spacing.sm },
+  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
+  composerWrap: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm },
+  urlInput: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  pickBtn: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs },
+  pickBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
+  composer: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border },
+  composerInput: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, height: 44 },
+  qtyInput: { width: 60, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, height: 44, textAlign: "center" },
+  addBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  modalRoot: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
+  sheet: { backgroundColor: colors.surface, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: "85%", gap: spacing.md },
+  sheetHandle: { width: 40, height: 4, backgroundColor: colors.borderStrong, borderRadius: 2, alignSelf: "center", marginBottom: spacing.md },
+  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
+  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md },
+  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.lg },
+  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
+  imageRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  thumb: { width: 56, height: 56, borderRadius: radius.sm },
+  secondaryBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  secondaryBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onSurface },
+});
+
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
   if (!data) return <SafeAreaView style={styles.center}><Text style={styles.empty}>List not found.</Text></SafeAreaView>;
 
@@ -393,6 +447,20 @@ export default function ListDetail() {
           }}
         />
 
+        {isGrocery && data.items.some((i) => !i.done) && (
+          <Pressable
+            style={styles.instacartBtn}
+            onPress={() => {
+              const unchecked = data.items.filter((i) => !i.done);
+              const query = unchecked.map((i) => i.text).join(" ");
+              Linking.openURL(`https://www.instacart.com/store/search_v3?term=${encodeURIComponent(query)}`);
+            }}
+          >
+            <Feather name="shopping-cart" size={16} color="#fff" />
+            <Text style={styles.instacartBtnText}>Order on Instacart</Text>
+          </Pressable>
+        )}
+
         <View style={[styles.composerWrap, { paddingBottom: bottomInset || spacing.md }]}>
           <ItemKindPicker value={kind} onChange={setKind} />
           {showUrlField && (
@@ -428,52 +496,3 @@ export default function ListDetail() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
-  empty: { fontFamily: fonts.body, color: colors.onSurfaceSecondary },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", gap: spacing.md, alignItems: "center", backgroundColor: colors.surface },
-  kickerRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  kicker: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 0.8, textTransform: "uppercase" },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#3DBF7A", marginBottom: 1 },
-  title: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface, marginTop: 2 },
-  shareRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceSecondary },
-  shareLabel: { fontFamily: fonts.bodyMedium, fontSize: fontSize.base, color: colors.onSurface },
-  shareHint: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  list: { padding: spacing.xl, gap: spacing.sm, flexGrow: 1 },
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
-  checkboxWrap: { padding: 2 },
-  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
-  checkboxOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  rowText: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, flex: 1 },
-  rowTextDone: { color: colors.onSurfaceTertiary, textDecorationLine: "line-through" },
-  dueRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
-  dueText: { fontFamily: fonts.body, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
-  qtyTag: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.surfaceSecondary },
-  emptyBlock: { padding: spacing.xxxl, alignItems: "center", gap: spacing.sm },
-  emptyTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface },
-  emptyHint: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
-  composerWrap: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm },
-  urlInput: { fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  pickBtn: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs },
-  pickBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.brand },
-  composer: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border },
-  composerInput: { flex: 1, fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, height: 44 },
-  qtyInput: { width: 60, fontFamily: fonts.body, fontSize: fontSize.base, color: colors.onSurface, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, height: 44, textAlign: "center" },
-  addBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
-  modalRoot: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.4)" },
-  sheet: { backgroundColor: colors.surface, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: "85%", gap: spacing.md },
-  sheetHandle: { width: 40, height: 4, backgroundColor: colors.borderStrong, borderRadius: 2, alignSelf: "center", marginBottom: spacing.md },
-  sheetTitle: { fontFamily: fonts.display, fontSize: fontSize.xxl, color: colors.onSurface },
-  sheetInput: { fontFamily: fonts.body, fontSize: fontSize.lg, color: colors.onSurface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md },
-  sheetPrimary: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.lg },
-  sheetPrimaryText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.lg, color: "#fff" },
-  imageRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  thumb: { width: 56, height: 56, borderRadius: radius.sm },
-  secondaryBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  secondaryBtnText: { fontFamily: fonts.bodyMedium, fontSize: fontSize.sm, color: colors.onSurface },
-});
