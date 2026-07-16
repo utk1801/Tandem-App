@@ -21,9 +21,7 @@ import { scheduleReminder, cancelReminder, ensurePermissions } from "@/src/notif
 import { SwipeableSheet } from "@/src/components/SwipeableSheet";
 import { SwipeableRow } from "@/src/components/SwipeableRow";
 import { confirmDelete } from "@/src/utils/confirmDelete";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const STORE_KEY = "tandem_reminders_v1";
+import { api } from "@/src/api";
 
 type ReminderItem = {
   id: string;
@@ -35,21 +33,16 @@ type ReminderItem = {
   sharedWithPartner?: boolean;
 };
 
-function genId() {
-  return `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function loadReminders(): Promise<ReminderItem[]> {
-  try {
-    const raw = await AsyncStorage.getItem(STORE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveReminders(items: ReminderItem[]): Promise<void> {
-  await AsyncStorage.setItem(STORE_KEY, JSON.stringify(items));
+function toLocal(row: Record<string, unknown>): ReminderItem {
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    notes: (row.notes as string) ?? "",
+    dueAt: (row.due_at as string | null) ?? null,
+    remindMinutesBefore: (row.remind_minutes_before as number | null) ?? null,
+    recurrence: (row.recurrence as Recurrence) ?? { type: "none" },
+    sharedWithPartner: (row.shared_with_partner as boolean) ?? false,
+  };
 }
 
 const REMIND_LABELS: Record<number, string> = {
@@ -80,7 +73,7 @@ export default function RemindersScreen() {
   const [sharedWithPartner, setSharedWithPartner] = useState(false);
 
   useEffect(() => {
-    loadReminders().then(setItems);
+    api.get("/reminders").then((r) => setItems(r.data.map(toLocal))).catch(() => {});
   }, []);
 
   const openCreate = () => {
@@ -131,35 +124,24 @@ export default function RemindersScreen() {
       );
     };
 
+    const body = {
+      title: title.trim(),
+      notes: notes.trim(),
+      due_at: reminder.dueAt,
+      remind_minutes_before: reminder.remindMinutesBefore,
+      recurrence,
+      shared_with_partner: sharedWithPartner,
+    };
     if (editingId) {
-      const updated: ReminderItem = {
-        id: editingId,
-        title: title.trim(),
-        notes: notes.trim(),
-        dueAt: reminder.dueAt,
-        remindMinutesBefore: reminder.remindMinutesBefore,
-        recurrence,
-        sharedWithPartner,
-      };
+      const res = await api.patch(`/reminders/${editingId}`, body);
+      const updated = toLocal(res.data);
       await scheduleItem(updated);
-      const next = items.map((x) => (x.id === editingId ? updated : x));
-      setItems(next);
-      await saveReminders(next);
+      setItems((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
     } else {
-      const id = genId();
-      const item: ReminderItem = {
-        id,
-        title: title.trim(),
-        notes: notes.trim(),
-        dueAt: reminder.dueAt,
-        remindMinutesBefore: reminder.remindMinutesBefore,
-        recurrence,
-        sharedWithPartner,
-      };
+      const res = await api.post("/reminders", body);
+      const item = toLocal(res.data);
       await scheduleItem(item);
-      const next = [...items, item];
-      setItems(next);
-      await saveReminders(next);
+      setItems((prev) => [...prev, item]);
     }
     closeSheet();
   };
@@ -170,11 +152,10 @@ export default function RemindersScreen() {
       await Promise.all(
         Array.from({ length: 10 }, (_, i) => cancelReminder(i === 0 ? baseKey : `${baseKey}:${i}`))
       );
-      const next = items.filter((x) => x.id !== item.id);
-      setItems(next);
-      await saveReminders(next);
+      await api.delete(`/reminders/${item.id}`).catch(() => {});
+      setItems((prev) => prev.filter((x) => x.id !== item.id));
     });
-  }, [items]);
+  }, []);
 
   const now = new Date();
   const upcoming = items
