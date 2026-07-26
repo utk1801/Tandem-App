@@ -1602,11 +1602,7 @@ async def get_stats(user: dict = Depends(current_user)):
 # ======================= FREE TIER KEEPALIVE =======================
 @api_router.get("/ping")
 def ping():
-    """No-auth endpoint for external cron services. Prevents Render free-tier sleep and Supabase pause."""
-    try:
-        sb.table("profiles").select("id").limit(1).execute()
-    except Exception:
-        pass
+    """No-auth endpoint for external cron services. Prevents Render free-tier sleep."""
     return {"pong": True}
 
 
@@ -1640,5 +1636,3 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestLogMiddleware)
-
-
